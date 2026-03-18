@@ -5,6 +5,7 @@ See: https://tools.ietf.org/html/rfc2812
      https://tools.ietf.org/html/rfc2813
      https://modern.ircdocs.horse/
 """
+__all__ = ["COMMANDS", "REPLY_CODES"]
 
 COMMANDS = {
     "ADMIN",

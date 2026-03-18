@@ -10,7 +10,7 @@ class IRCUser:
     host: str
 
     @property
-    def address(self):
+    def address(self) -> str:
         return f"{self.nick}!{self.user}@{self.host}"
 
     @classmethod

@@ -1,9 +1,9 @@
 from dataclasses import dataclass
-from typing import Optional, Tuple
 
-from tama.irc.command import COMMANDS, REPLY_CODES
-from tama.irc.user import IRCUser
-from tama.irc.exc import InvalidIRCCommandError
+from tama.irc.command import *
+from tama.irc.ctcp import *
+from tama.irc.user import *
+from tama.irc.exc import *
 
 __all__ = ["IRCMessage"]
 
@@ -13,15 +13,24 @@ UNKNOWN_USER = IRCUser(nick="<unknown>", user="<unknown>", host="<unknown>")
 @dataclass
 class IRCMessage:
     command: str
-    prefix: Optional[str] = None
-    middle: Tuple[str, ...] = ()
-    trailing: Optional[str] = None
+    prefix: str | None = None
+    middle: tuple[str, ...] = ()
+    trailing: str | None = None
 
     # Keep the original numeric for raw access
-    numeric: Optional[str] = None
+    numeric: str | None = None
 
     # UTF-8 assumed unless specified otherwise
     encoding: str = "utf-8"
+
+    # CTCP specific stuff
+    @dataclass
+    class CTCP:
+        command: str
+        text: str | None = None
+
+    # CTCP specific stuff
+    ctcp: IRCMessage.CTCP | None = None
 
     @classmethod
     def parse(cls, msg: bytes, encoding: str = "utf-8") -> "IRCMessage":
@@ -71,13 +80,42 @@ class IRCMessage:
                 # Bad command
                 raise InvalidIRCCommandError(command)
 
-        return IRCMessage(
+        # Check for CTCP encapsulation and parse messages
+        ctcp = None
+        if (
+            command == "PRIVMSG"
+            and trailing.startswith("\x01")
+            and trailing.endswith("\x01")
+        ):
+            ctcp_payload: str = trailing[1:-1]
+            ctcp_cmd, *ctcp_trailing = ctcp_payload.split(" ", 1)
+
+            if ctcp_cmd not in CTCP_COMMANDS:
+                raise InvalidCTCPCommandError(ctcp_cmd)
+
+            # No need to parse CTCP message further as the only query with a
+            # parameter list is DCC which is not supported.
+            if len(ctcp_trailing) == 0:
+                ctcp_trailing = None
+            else:
+                ctcp_trailing = ctcp_trailing[0]
+
+            ctcp = cls.CTCP(
+                command=ctcp_cmd,
+                text=ctcp_trailing
+            )
+            # Make sure we don't keep redundant information to not break
+            # serialization
+            trailing = None
+
+        return cls(
             encoding=encoding,
             prefix=prefix,
             command=command,
             numeric=numeric,
             middle=middle,
-            trailing=trailing
+            trailing=trailing,
+            ctcp=ctcp,
         )
 
     @property
@@ -98,6 +136,14 @@ class IRCMessage:
 
         if self.trailing:
             buf.extend(f" :{self.trailing}".encode(self.encoding))
+
+        if self.ctcp:
+            buf.extend(" :".encode(self.encoding))
+            buf.extend(b"\x01")
+            buf.extend(self.ctcp.command.encode(self.encoding))
+            if self.ctcp.text:
+                buf.extend(f" {self.ctcp.text}".encode(self.encoding))
+            buf.extend(b"\x01")
 
         buf.extend(b"\r\n")
         return bytes(buf)

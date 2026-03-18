@@ -2,7 +2,6 @@ import os
 import sys
 import importlib
 import importlib.util
-from typing import List
 from logging import getLogger
 
 from .plugin import Plugin
@@ -10,7 +9,7 @@ from .plugin import Plugin
 __all__ = ["load_builtins", "load_plugins"]
 
 
-def load_builtins() -> List[Plugin]:
+def load_builtins() -> list[Plugin]:
     builtin_pkg = "tama.core.plugins.builtins"
     builtins = importlib.import_module(builtin_pkg)
     return [
@@ -22,7 +21,7 @@ def load_builtins() -> List[Plugin]:
     ]
 
 
-def load_plugins(path: str) -> List[Plugin]:
+def load_plugins(path: str, config: dict[str, dict] = None) -> list[Plugin]:
     py_files = [
         f for f in os.listdir(path)
         if os.path.isfile(os.path.join(path, f)) and f.endswith(".py")
@@ -30,18 +29,22 @@ def load_plugins(path: str) -> List[Plugin]:
     plugins = []
     for py in py_files:
         try:
-            module_name = f"tama.plugins.{py[:-3]}"
+            module_name = py[:-3]
+            module_classname = f"tama.plugins.{py[:-3]}"
+            module_config = config[module_name] if config is not None and config.get(module_name) is not None else {}
             spec = importlib.util.spec_from_file_location(
-                module_name, os.path.join(path, py)
+                module_classname, os.path.join(path, py)
             )
             if spec is None:
                 # Shit broke somehow
                 continue
             module = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = module
+            sys.modules[module_classname] = module
             spec.loader.exec_module(module)
             getLogger(__name__).info(f"Plugin {py} loaded.")
-            plugins.append(Plugin(module_name, module))
+            p = Plugin(module_classname, module)
+            p.on_load(module_config)
+            plugins.append(p)
         except SyntaxError:
             getLogger(__name__).error(f"Plugin {py} malformed.")
         except Exception as exc:  # noqa

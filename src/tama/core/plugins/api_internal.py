@@ -2,27 +2,27 @@
 Defines the plugin API internals.
 """
 import re
-import asyncio as aio
-from typing import Protocol, Callable, Pattern, Match, Optional, Union, Any, \
-                   TYPE_CHECKING
+import inspect
+from collections.abc import Callable
+from typing import Any, Protocol, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from tama.core.bot import TamaBot
     from tama.core.plugins.plugin import Plugin
 
-__all__ = ["Action", "Command", "Regex"]
+__all__ = ["Action", "OnLoad", "Command", "Regex"]
 
 
 class Action:
     is_async: bool
-    executor: Optional[Any]
-    async_executor: Optional[Any]
+    executor: Any | None
+    async_executor: Any | None
 
     # This is a weak reference
-    parent_plugin: Optional[Callable[[], "Plugin"]]
+    parent_plugin: Callable[[], "Plugin"] | None
 
     def __init__(self, executor: Any):
-        if aio.iscoroutinefunction(executor):
+        if inspect.iscoroutinefunction(executor):
             self.is_async = True
             self.executor = None
             self.async_executor = executor
@@ -32,11 +32,34 @@ class Action:
             self.async_executor = None
 
 
+class OnLoad(Action):
+    class Executor(Protocol):
+        def __call__(
+            self,
+            *,
+            config: dict = None,
+        ) -> None: ...
+
+    def __init__(
+        self,
+        executor: "Loader.Executor",
+    ):
+        super().__init__(executor)
+
+
 class Command(Action):
     name: str
-    docstring: Optional[str]
-    executor: Optional["Command.Executor"]
-    async_executor: Optional["Command.AsyncExecutor"]
+    aliases: list[str]
+    docstring: str | None
+    executor: "Command.Executor | None"
+    async_executor: "Command.AsyncExecutor | None"
+    permissions: list[str] | None
+    blocking: bool
+
+    __slots__ = (
+        "name", "aliases", "docstring", "executor", "async_executor",
+        "permissions", "blocking",
+    )
 
     class Executor(Protocol):
         def __call__(
@@ -46,8 +69,8 @@ class Command(Action):
             channel: str = None,
             sender: "TamaBot.User" = None,
             bot: "TamaBot" = None,
-            client: "TamaBot.Client" = None
-        ) -> Optional[str]: ...
+            client: "TamaBot.Client" = None,
+        ) -> str | None: ...
 
     class AsyncExecutor(Protocol):
         async def __call__(
@@ -57,51 +80,60 @@ class Command(Action):
             channel: str = None,
             sender: "TamaBot.User" = None,
             bot: "TamaBot" = None,
-            client: "TamaBot.Client" = None
-        ) -> Optional[str]: ...
+            client: "TamaBot.Client" = None,
+        ) -> str | None: ...
 
     def __init__(
         self,
-        executor: Union["Command.Executor", "Command.AsyncExecutor"],
+        executor: "Command.Executor | Command.AsyncExecutor",
         name: str,
-        docstring: Optional[str] = None
+        aliases: list[str] | None = None,
+        docstring: str | None = None,
+        permissions: list[str] | None = None,
+        blocking: bool = False,
     ):
         super().__init__(executor)
         self.name = name
+        self.aliases = aliases
         self.docstring = docstring
+        self.permissions = permissions
+        self.blocking = blocking
 
 
 class Regex(Action):
-    pattern: Pattern
-    executor: Optional["Regex.Executor"]
-    async_executor: Optional["Regex.AsyncExecutor"]
+    pattern: re.Pattern
+    executor: "Regex.Executor | None"
+    async_executor: "Regex.AsyncExecutor | None"
 
     class Executor(Protocol):
         def __call__(
             self,
-            match: Match,
+            match: re.Match,
             *,
             channel: str = None,
             sender: "TamaBot.User" = None,
             bot: "TamaBot" = None,
-            client: "TamaBot.Client" = None
-        ) -> Optional[str]: ...
+            client: "TamaBot.Client" = None,
+        ) -> str | None: ...
 
     class AsyncExecutor(Protocol):
         async def __call__(
             self,
-            match: Match,
+            match: re.Match,
             *,
             channel: str = None,
             sender: "TamaBot.User" = None,
             bot: "TamaBot" = None,
-            client: "TamaBot.Client" = None
-        ) -> Optional[str]: ...
+            client: "TamaBot.Client" = None,
+        ) -> str | None: ...
 
     def __init__(
         self,
-        executor: Union["Regex.Executor", "Regex.AsyncExecutor"],
-        pattern: str
+        executor: "Regex.Executor | Regex.AsyncExecutor",
+        pattern: str | re.Pattern,
     ):
         super().__init__(executor)
-        self.pattern = re.compile(pattern)
+        if not isinstance(pattern, re.Pattern):
+            self.pattern = re.compile(pattern)
+        else:
+            self.pattern = pattern

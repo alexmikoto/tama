@@ -12,7 +12,7 @@ __all__ = [
     "JoinedEvent", "BotJoinedEvent", "ChannelJoinedEvent",
     "PartedEvent", "BotPartedEvent", "ChannelPartedEvent",
     "KickedEvent", "BotKickedEvent", "ChannelKickedEvent",
-    "MessagedEvent",
+    "MessagedEvent", "ActionEvent",
     "NoticedEvent",
     "ClosedEvent"
 ]
@@ -107,6 +107,17 @@ class ChannelKickedEvent(KickedEvent):
 class MessagedEvent(Event):
     """
     Received an IRC message.
+    """
+    client: "IRCClient"
+    who: IRCUser
+    where: str
+    message: str
+
+
+@dataclass
+class ActionEvent(Event):
+    """
+    Received a CTCP action message.
     """
     client: "IRCClient"
     who: IRCUser

@@ -5,7 +5,6 @@ observable event stream.
 import asyncio as aio
 from collections import deque
 from time import time
-from typing import Tuple, List, Deque, Optional
 from logging import Logger, getLogger
 
 from tama.config import ServerConfig
@@ -17,7 +16,7 @@ from .event import *
 
 class IRCClient:
     __slots__ = (
-        "name", "startup_config", "stream", "bus",
+        "name", "startup_config", "version", "stream", "bus",
         "nickname", "username", "realname",
         "_channel_list",
         "logger_name", "logger",
@@ -29,6 +28,7 @@ class IRCClient:
     # Client data
     name: str
     startup_config: ServerConfig
+    version: str
 
     # Connection primitives
     stream: IRCStream
@@ -40,7 +40,7 @@ class IRCClient:
     realname: str
 
     # State keeping
-    _channel_list: List[str]
+    _channel_list: list[str]
 
     # Raw IRC protocol logger
     logger_name: str
@@ -49,20 +49,23 @@ class IRCClient:
     # Internals
     _starting_up: bool
     _shutting_down: bool
-    _inbound_queue: Deque[IRCMessage]
+    _inbound_queue: deque[IRCMessage]
     _outbound_queue: "aio.Queue[IRCMessage]"
     # Actions to perform once the IRC connection is registered.
     # These are not immediately queued on create as the connection is not
     # registered yet.
-    _on_register: Deque[IRCMessage]
+    _on_register: deque[IRCMessage]
     # Handles wait for server PONG
-    _waiting_for_pong: Optional[str]
+    _waiting_for_pong: str | None
 
     def __init__(
         self, name: str, startup_config: ServerConfig, stream: IRCStream
     ) -> None:
         self.name = name
         self.startup_config = startup_config
+        # Import on runtime to not run into a circular import
+        from tama import __version__ as version
+        self.version = version
 
         self.stream = stream
         self.bus = EventBus(accept=[
@@ -70,7 +73,7 @@ class IRCClient:
             BotJoinedEvent, ChannelJoinedEvent,
             BotPartedEvent, ChannelPartedEvent,
             BotKickedEvent, ChannelKickedEvent,
-            MessagedEvent, NoticedEvent,
+            MessagedEvent, ActionEvent, NoticedEvent,
             ClosedEvent,
         ])
 
@@ -126,7 +129,7 @@ class IRCClient:
         await aio.sleep(seconds)
         return await cls.create(name, config)
 
-    async def run(self) -> Tuple[str, ServerConfig]:
+    async def run(self) -> tuple[str, ServerConfig]:
         inbound = aio.create_task(self._inbound())
         outbound = aio.create_task(self._outbound())
         timeout = aio.create_task(self._timeout())
@@ -227,6 +230,16 @@ class IRCClient:
             self.nickname = msg.trailing
 
     def handle_server_privmsg(self, msg: IRCMessage) -> None:
+        # CTCP messages require further processing
+        if msg.ctcp is not None:
+            srv_handler = getattr(
+                self,
+                "handle_server_ctcp_" + msg.ctcp.command.lower(),
+                self.handle_server_ctcp_default,
+            )
+            srv_handler(msg)
+            return
+
         # If command param is the client nick, set the user as the location
         who = msg.parse_prefix_as_user()
         where = msg.middle[0]
@@ -330,6 +343,37 @@ class IRCClient:
             message=msg.trailing,
         ))
 
+    # CTCP handlers
+    def handle_server_ctcp_default(self, msg: IRCMessage) -> None:
+        getLogger(__name__).debug("Unhandled CTCP message: %s", msg.ctcp.command)
+        # Do nothing for unhandled CTCP commands
+        return
+
+    # A bunch of these will always will be a direct PRIVMSG to a user
+    def handle_server_ctcp_clientinfo(self, msg: IRCMessage) -> None:
+        reply_to = msg.parse_prefix_as_user()
+        self.ctcp(reply_to.nick, "CLIENTINFO", "ACTION CLIENTINFO VERSION")
+
+    def handle_server_ctcp_version(self, msg: IRCMessage) -> None:
+        reply_to = msg.parse_prefix_as_user()
+        self.ctcp(reply_to.nick, "VERSION", f"tama {self.version}")
+
+    def handle_server_ctcp_time(self, msg: IRCMessage) -> None:
+        reply_to = msg.parse_prefix_as_user()
+        self.ctcp(reply_to.nick, "VERSION", f"tama {self.version}")
+
+    def handle_server_ctcp_action(self, msg: IRCMessage) -> None:
+        who = msg.parse_prefix_as_user()
+        where = msg.middle[0]
+        if where == self.nickname:
+            where = who.nick
+        self.bus.broadcast(ActionEvent(
+            client=self,
+            who=who,
+            where=where,
+            message=msg.ctcp.text,
+        ))
+
     # Upstream reply code handlers
     def handle_server_rpl_welcome(self, msg: IRCMessage) -> None:
         self._starting_up = False
@@ -388,6 +432,16 @@ class IRCClient:
             middle=(target,),
             trailing=message,
         ))
+
+    def ctcp(self, target: str, command: str, message: str) -> None:
+        self._outbound_queue.put_nowait(IRCMessage(
+            command="PRIVMSG",
+            middle=(target,),
+            ctcp=IRCMessage.CTCP(command=command, text=message),
+        ))
+
+    def action(self, target: str, message: str) -> None:
+        self.ctcp(target, "ACTION", message)
 
     def quit(self, reason: str) -> None:
         self._outbound_queue.put_nowait(IRCMessage(

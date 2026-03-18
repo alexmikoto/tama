@@ -37,8 +37,11 @@ class FortuneFile:
     rotated: bool
 
 
-def load_fortunes():
-    idx_paths = [Path("data/fortune"), Path("data/fortune/off")]
+@api.on_load()
+def load_fortunes(config: dict = None):
+    if config is None:
+        raise Exception("No config provided")
+    idx_paths = [Path(p) for p in config["fortune_paths"]]
     indexes = [
         idx for p in idx_paths for idx in p.iterdir()
         if idx.suffix == ".dat"
@@ -100,8 +103,3 @@ def book(_, channel: str = None, client: TamaBot.Client = None) -> None:
     )
     for line in cookie.split("\n"):
         client.message(channel, line)
-
-
-# FIXME: This is being loaded on module load with hardcoded paths until on_load
-# api call is done
-load_fortunes()

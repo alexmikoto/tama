@@ -1,23 +1,22 @@
 from itertools import repeat
 from collections import deque
 from dataclasses import dataclass, field
-from typing import List, Dict, Tuple, Deque
 
 
 @dataclass
 class TrieNode:
     character: str
     terminator: bool = False
-    members: Dict[str, "TrieNode"] = field(default_factory=dict)
+    members: dict[str, "TrieNode"] = field(default_factory=dict)
 
 
 class Trie:
     root: TrieNode
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.root = TrieNode("")
 
-    def add(self, item: str):
+    def add(self, item: str) -> None:
         father = self.root
         for c in item[:-1]:
             node = father.members.get(c)
@@ -32,7 +31,7 @@ class Trie:
         else:
             node.terminator = True
 
-    def search(self, string: str) -> List[str]:
+    def search(self, string: str) -> list[str]:
         match = self.root
         # Check if string is not empty
         if len(string) == 0:
@@ -65,7 +64,7 @@ class Trie:
             matches = []
 
         # Iterate
-        nodes: Deque[Tuple[str, TrieNode]] = deque()
+        nodes: deque[tuple[str, TrieNode]] = deque()
         nodes.extend(zip(repeat(string), match.members.values()))
         try:
             while nx := nodes.popleft():
@@ -76,3 +75,6 @@ class Trie:
                 nodes.extend(zip(repeat(current_str), n.members.values()))
         except IndexError:
             return matches
+
+        # Catch-all because we should never reach this
+        raise AssertionError("trie.py: Invalid branch reached")

@@ -5,85 +5,97 @@ Dice, coins, and random generation for gaming. Ported from CloudBot.
 
 Modified By:
     - Luke Rogers <https://github.com/lukeroge>
-    - Alex108 <https://github.com/alex108>
 
 License:
     GPL v3
 """
+
 import random
 import re
 
-from tama import api
+from tama import api, TamaBot
+
+whitespace_re = re.compile(r"\s+")
+valid_diceroll = re.compile(
+    r"^([+-]?(?:\d+|\d*d(?:\d+|F))(?:[+-](?:\d+|\d*d(?:\d+|F)))*)( .+)?$", re.I
+)
+sign_re = re.compile(r"[+-]?(?:\d*d)?(?:\d+|F)", re.I)
+split_re = re.compile(r"([\d+-]*)d?(F|\d*)", re.I)
 
 
-whitespace_re = re.compile(r'\s+')
-valid_diceroll = re.compile(r'^([+-]?(?:\d+|\d*d(?:\d+|F))(?:[+-](?:\d+|\d*d(?:\d+|F)))*)( .+)?$', re.I)
-sign_re = re.compile(r'[+-]?(?:\d*d)?(?:\d+|F)', re.I)
-split_re = re.compile(r'([\d+-]*)d?(F|\d*)', re.I)
+def clamp(n, min_value, max_value):
+    """Restricts a number to a certain range of values,
+    returning the min or max value if the value is too small or large, respectively
+    :param n: The value to clamp
+    :param min_value: The minimum possible value
+    :param max_value: The maximum possible value
+    :return: The clamped value
+    """
+    return min(max(n, min_value), max_value)
 
 
 def n_rolls(count, n):
-    """roll an n-sided die count times
-    :type count: int
-    :type n: int | str
-    """
-    if n == "F":
-        return [random.randint(-1, 1) for x in range(min(count, 100))]
-    if n < 2:  # it's a coin
-        if count < 100:
-            return [random.randint(0, 1) for x in range(count)]
-        else:  # fake it
-            return [int(random.normalvariate(.5 * count, (.75 * count) ** .5))]
-    else:
-        if count < 100:
-            return [random.randint(1, n) for x in range(count)]
-        else:  # fake it
-            return [int(random.normalvariate(.5 * (1 + n) * count,
-                                             (((n + 1) * (2 * n + 1) / 6. -
-                                               (.5 * (1 + n)) ** 2) * count) ** .5))]
+    """roll an n-sided die count times"""
+    if n in ("f", "F"):
+        return [random.randint(-1, 1) for _ in range(min(count, 100))]
+
+    if count < 100:
+        return [random.randint(1, n) for _ in range(count)]
+
+    normalvariate = approximate(count, n)
+
+    return [int(normalvariate)]
 
 
-@api.command("roll")  # "dice")
-def dice(text, sender=None, client=None):
-    """<dice roll> - simulates dice rolls. Example: 'dice 2d20-d5+4 roll 2': D20s, subtract 1D5, add 4
-    :type text: str
-    """
+def approximate(count, n):
+    # Calculate a random sum approximated using a randomized normal variate with the midpoint used as the mu
+    # and an approximated standard deviation based on variance as the sigma
+    mid = 0.5 * (n + 1) * count
+    var = (n**2 - 1) / 12
+    adj_var = (var * count) ** 0.5
+    normalvariate = random.normalvariate(mid, adj_var)
+    return normalvariate
 
-    match = valid_diceroll.match(whitespace_re.sub("", text))
-    if match:
-        text, desc = match.groups()
-    else:
-        client.notice(sender.nick, "Invalid dice roll '{}'".format(text))
-        return
+
+@api.command("roll", "dice")
+def dice(text, channel: str = None, client: TamaBot.Client = None):
+    """<dice roll> - simulates dice rolls. Example: 'dice 2d20-d5+4 roll 2': D20s, subtract 1D5, add 4"""
+    match = valid_diceroll.match(text)
+    if not match:
+        client.notice(f"Invalid dice roll '{text}'")
+        return None
+
+    text, desc = match.groups()
 
     if "d" not in text:
-        return
+        return None
 
-    spec = whitespace_re.sub('', text)
-    if not valid_diceroll.match(spec):
-        client.notice(sender.nick, "Invalid dice roll '{}'".format(text))
-        return
+    spec = whitespace_re.sub("", text)
     groups = sign_re.findall(spec)
 
     total = 0
     rolls = []
 
     for roll in groups:
-        count, side = split_re.match(roll).groups()
-        count = int(count) if count not in " +-" else 1
-        if side.upper() == "F":  # fudge dice are basically 1d3-2
+        match = split_re.match(roll)
+        if match is None:
+            return f"Can't match roll: {roll}"
+
+        _count, _side = match.groups()
+        count = int(_count) if _count not in " +-" else 1
+        if _side.upper() == "F":  # fudge dice are basically 1d3-2
             for fudge in n_rolls(count, "F"):
                 if fudge == 1:
-                    rolls.append("\x033+\x0F")
+                    rolls.append("\x033+\x0f")
                 elif fudge == -1:
-                    rolls.append("\x034-\x0F")
+                    rolls.append("\x034-\x0f")
                 else:
                     rolls.append("0")
                 total += fudge
-        elif side == "":
+        elif _side == "":
             total += count
         else:
-            side = int(side)
+            side = int(_side)
             try:
                 if count > 0:
                     d = n_rolls(count, side)
@@ -95,9 +107,53 @@ def dice(text, sender=None, client=None):
                     total -= sum(d)
             except OverflowError:
                 # I have never seen this happen. If you make this happen, you win a cookie
-                return "Thanks for overflowing a float, jerk >:["
+                client.message(channel, "Thanks for overflowing a float, jerk >:[")
+                raise
 
     if desc:
-        return "{}: {} ({})".format(desc.strip(), total, ", ".join(rolls))
+        return f"{desc.strip()}: {total} ({', '.join(rolls)})"
+
+    return f"{total} ({', '.join(rolls)})"
+
+
+@api.command()
+def choose(text, channel: str = None, client: TamaBot.Client = None):
+    """<choice1>, [choice2], [choice3], etc. - randomly picks one of the given choices"""
+    choices = re.findall(r"([^,]+)", text.strip())
+    if len(choices) == 1:
+        choices = choices[0].split(" or ")
+        if len(choices) == 1:
+            client.message(channel, "Nothing to choose.")
+            return None
+
+    return random.choice([choice.strip() for choice in choices])
+
+
+@api.command()
+def coin(text, channel: str = None, client: TamaBot.Client = None):
+    """[amount] - flips [amount] coins"""
+
+    if text:
+        try:
+            amount = int(text)
+        except (ValueError, TypeError):
+            client.notice(f"Invalid input '{text}': not a number")
+            return None
     else:
-        return "{} ({})".format(total, ", ".join(rolls))
+        amount = 1
+
+    if amount == 1:
+        client.act(f"flips a coin and gets {random.choice(['heads', 'tails'])}.")
+        return None
+
+    if amount == 0:
+        action("makes a coin flipping motion")
+        return None
+
+    mu = 0.5 * amount
+    sigma = (0.75 * amount) ** 0.5
+    n = random.normalvariate(mu, sigma)
+    heads = clamp(round(n), 0, amount)
+    tails = amount - heads
+    action(f"flips {amount} coins and gets {heads} heads and {tails} tails.")
+    return None

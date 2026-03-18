@@ -1,14 +1,13 @@
 from dataclasses import dataclass
-from typing import Optional, List, Dict
 
-__all__ = ["Config", "ServerConfig", "TamaConfig"]
+__all__ = ["Config", "ServerConfig", "PermissionGroupConfig", "TamaConfig"]
 
 
 @dataclass
 class ServerServiceAuthConfig:
-    service: Optional[str]
-    command: Optional[str]
-    username: Optional[str]
+    service: str | None
+    command: str | None
+    username: str | None
     password: str
 
 
@@ -19,20 +18,28 @@ class ServerConfig:
     nick: str
     user: str
     realname: str
-    channels: Optional[List[str]]
-    service_auth: Optional[ServerServiceAuthConfig]
+    channels: list[str] | None
+    service_auth: ServerServiceAuthConfig | None
+
+
+@dataclass
+class PermissionGroupConfig:
+    perms: list[str]
+    users: list[str]
 
 
 @dataclass
 class TamaConfig:
     prefix: str
-    log_folder: Optional[str]
-    log_raw: Optional[bool]
-    log_irc: Optional[bool]
+    log_folder: str | None
+    log_raw: bool | None
+    log_irc: bool | None
+    permissions: dict[str, PermissionGroupConfig] | None
+    plugins: dict[str, dict] | None
 
 
 @dataclass
 class Config:
-    server: Dict[str, ServerConfig]
+    server: dict[str, ServerConfig]
     tama: TamaConfig
-    logging: Optional[dict]
+    logging: dict | None

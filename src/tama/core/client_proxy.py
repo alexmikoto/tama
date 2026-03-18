@@ -1,5 +1,5 @@
 from logging import Logger
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from tama.irc import IRCClient
 
@@ -19,9 +19,12 @@ class ClientProxy:
         self.client = client
         self.bot = bot
 
-    def _get_irc_logger(self, target: str) -> Optional[Logger]:
+    def _get_irc_logger(self, target: str) -> Logger | None:
         # Very intimate access
         return self.bot._get_irc_logger(self.client, target)  # noqa
+
+    def join(self, channel: str):
+        self.client.join(channel)
 
     def message(self, target: str, message: str) -> None:
         log = self._get_irc_logger(target)
@@ -29,7 +32,13 @@ class ClientProxy:
             log.info("<%s> %s", self.client.nickname, message)
         self.client.privmsg(target, message)
 
-    def notice(self, target: str, message: str):
+    def action(self, target: str, message: str) -> None:
+        log = self._get_irc_logger(target)
+        if log:
+            log.info("* %s %s", self.client.nickname, message)
+        self.client.action(target, message)
+
+    def notice(self, target: str, message: str) -> None:
         log = self._get_irc_logger(target)
         if log:
             log.info("-%s- %s", self.client.nickname, message)

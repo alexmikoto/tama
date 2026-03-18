@@ -1,7 +1,12 @@
 """
 gaming.py
 
-Dice, coins, and random generation for gaming. Ported from CloudBot.
+Dice, coins, and random generation for gaming.
+
+This plugin has been ported directly from CloudBot, which is under the GPLv3
+license.
+
+All credit goes to the Cloudbot maintainers.
 
 Modified By:
     - Luke Rogers <https://github.com/lukeroge>
@@ -13,7 +18,7 @@ License:
 import random
 import re
 
-from tama import api, TamaBot
+from tama import api
 
 whitespace_re = re.compile(r"\s+")
 valid_diceroll = re.compile(
@@ -58,7 +63,7 @@ def approximate(count, n):
 
 
 @api.command("roll", "dice")
-def dice(text, channel: str = None, client: TamaBot.Client = None):
+def dice(text, client: api.Client = None):
     """<dice roll> - simulates dice rolls. Example: 'dice 2d20-d5+4 roll 2': D20s, subtract 1D5, add 4"""
     match = valid_diceroll.match(text)
     if not match:
@@ -107,7 +112,7 @@ def dice(text, channel: str = None, client: TamaBot.Client = None):
                     total -= sum(d)
             except OverflowError:
                 # I have never seen this happen. If you make this happen, you win a cookie
-                client.message(channel, "Thanks for overflowing a float, jerk >:[")
+                client.message("Thanks for overflowing a float, jerk >:[")
                 raise
 
     if desc:
@@ -117,20 +122,20 @@ def dice(text, channel: str = None, client: TamaBot.Client = None):
 
 
 @api.command()
-def choose(text, channel: str = None, client: TamaBot.Client = None):
+def choose(text, client: api.Client = None):
     """<choice1>, [choice2], [choice3], etc. - randomly picks one of the given choices"""
     choices = re.findall(r"([^,]+)", text.strip())
     if len(choices) == 1:
         choices = choices[0].split(" or ")
         if len(choices) == 1:
-            client.message(channel, "Nothing to choose.")
+            client.message("Nothing to choose.")
             return None
 
     return random.choice([choice.strip() for choice in choices])
 
 
-@api.command()
-def coin(text, channel: str = None, client: TamaBot.Client = None):
+@api.command(auto_help=False)
+def coin(text, client: api.Client = None):
     """[amount] - flips [amount] coins"""
 
     if text:
@@ -143,11 +148,11 @@ def coin(text, channel: str = None, client: TamaBot.Client = None):
         amount = 1
 
     if amount == 1:
-        client.act(f"flips a coin and gets {random.choice(['heads', 'tails'])}.")
+        client.action(f"flips a coin and gets {random.choice(['heads', 'tails'])}.")
         return None
 
     if amount == 0:
-        action("makes a coin flipping motion")
+        client.action("makes a coin flipping motion")
         return None
 
     mu = 0.5 * amount
@@ -155,5 +160,5 @@ def coin(text, channel: str = None, client: TamaBot.Client = None):
     n = random.normalvariate(mu, sigma)
     heads = clamp(round(n), 0, amount)
     tails = amount - heads
-    action(f"flips {amount} coins and gets {heads} heads and {tails} tails.")
+    client.action(f"flips {amount} coins and gets {heads} heads and {tails} tails.")
     return None

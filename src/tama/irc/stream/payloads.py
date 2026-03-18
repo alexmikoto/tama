@@ -7,7 +7,9 @@ from tama.irc.exc import *
 
 __all__ = ["IRCMessage"]
 
-UNKNOWN_USER = IRCUser(nick="<unknown>", user="<unknown>", host="<unknown>")
+UNKNOWN_USER = IRCUser(
+    nick="<unknown>", user="<unknown>", host="<unknown>", is_nil=True
+)
 
 
 @dataclass
@@ -74,6 +76,12 @@ class IRCMessage:
             if command is None:
                 # Unknown reply code
                 raise InvalidIRCCommandError(numeric)
+            # These numerics don't send a message in the usual format
+            if command in ("RPL_MYINFO", "RPL_ISUPPORT"):
+                if trailing:
+                    trailing = " ".join(middle[1:]) + ":" + trailing
+                else:
+                    trailing = " ".join(middle[1:])
         else:
             numeric = None
             if command not in COMMANDS:
@@ -83,7 +91,7 @@ class IRCMessage:
         # Check for CTCP encapsulation and parse messages
         ctcp = None
         if (
-            command == "PRIVMSG"
+            (command == "PRIVMSG" or command == "NOTICE")
             and trailing.startswith("\x01")
             and trailing.endswith("\x01")
         ):

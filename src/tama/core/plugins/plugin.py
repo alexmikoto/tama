@@ -1,7 +1,11 @@
 import weakref
 from types import ModuleType, FunctionType
+from typing import TYPE_CHECKING
 
 from tama.core.plugins.api_internal import *
+
+if TYPE_CHECKING:
+    from tama.core.bot import TamaBot
 
 __all__ = ["Plugin"]
 
@@ -37,8 +41,8 @@ class Plugin:
                 self.actions.append(info)
                 info.parent_plugin = weakref.ref(self)
 
-    def on_load(self, config: dict) -> None:
+    def on_load(self, *args, **kwargs) -> None:
         for action in self.actions:
             if isinstance(action, OnLoad):
                 # Propagate any exception up
-                action.executor(config)
+                action.executor(*args, **kwargs)

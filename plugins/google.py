@@ -3,7 +3,11 @@ google.py
 
 Originally for RoboCop 2, a replacement after Google's deprecation of Google Web Search API
 Module requires a Google Custom Search API key and a Custom Search Engine ID in order to function.
-Ported from CloudBot.
+
+This plugin has been ported directly from CloudBot, which is under the GPLv3
+license.
+
+All credit goes to the Cloudbot maintainers.
 
 Created By:
     - Foxlet <http://furcode.tk/>

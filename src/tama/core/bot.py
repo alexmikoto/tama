@@ -12,10 +12,14 @@ from tama.config import Config
 from tama.util.trie import Trie
 from tama.irc import IRCClient, IRCUser
 from tama.irc.event import *
-from tama.core.plugins import *
+
+# Load plugins from private APIs so we can include this in the public API
+from tama.core.plugins.plugin import *
+from tama.core.plugins.api_internal import *
+import tama.core.plugins.loader as loader
 
 from .exit_status import ExitStatus
-from .client_proxy import ClientProxy
+from .client_proxy import *
 from .acl import ACL
 from .exc import NameCollisionError
 
@@ -29,6 +33,9 @@ class TamaBot:
     log_raw: bool
     log_irc: bool
 
+    plugin_folder: str
+    data_folder: str
+
     clients: list[IRCClient]
     plugins: list[Plugin]
 
@@ -37,6 +44,12 @@ class TamaBot:
     act_regex: list[Regex]
 
     act_commands_idx: Trie
+
+    # Permissions manager
+    acl: ACL
+
+    # List of all event handlers provided
+    event_handlers: list[tuple]
 
     # Enumeration for exit status
     ExitStatus = ExitStatus
@@ -57,12 +70,25 @@ class TamaBot:
         self.log_irc = (
             config.tama.log_irc if config.tama.log_irc is not None else True
         )
+        # Set default paths for plugin and data files
+        self.plugin_folder = (
+            config.tama.plugin_folder if config.tama.plugin_folder else "plugins"
+        )
+        self.data_folder = (
+            config.tama.data_folder if config.tama.data_folder else "data"
+        )
         # Client bookkeeping
         self.clients = []
         # Load builtin plugins
         self.plugins = loader.load_builtins()
         # Load external plugins
-        self.plugins.extend(loader.load_plugins("plugins", config.tama.plugins))
+        self.plugins.extend(
+            loader.load_plugins(
+                path=self.plugin_folder,
+                bot=self,
+                config=config.tama.plugins
+            )
+        )
         # For registered actions
         self.act_commands = {}
         self.act_regex = []
@@ -73,17 +99,41 @@ class TamaBot:
         self._setup_plugins()
         # Load ACL
         self.acl = ACL(config.tama.permissions)
+        # Populate list of event observers
+        self.event_handlers = [
+            (WelcomeBurstEvent, self.on_welcome_burst),
+            (NickChangeEvent, self.on_nick_change),
+            (InvitedEvent, self.on_invite),
+            (BotJoinedEvent, self.on_join),
+            (ChannelJoinedEvent, self.on_join),
+            (BotPartedEvent, self.on_part),
+            (ChannelPartedEvent, self.on_part),
+            (BotKickedEvent, self.on_kick),
+            (ChannelKickedEvent, self.on_kick),
+            (MessagedEvent, self.on_message),
+            (NoticedEvent, self.on_notice),
+            (ActionEvent, self.on_action),
+            (ClosedEvent, self.on_closed),
+            (UserQuitEvent, self.on_user_quit)
+        ]
 
     def connect(self, client: IRCClient):
         self.clients.append(client)
         self._subscribe_client_events(client)
 
+        # Setup IRC logger and log connection startup
+        log = self._get_irc_logger(client, client.name)
+        if log:
+            log.info(
+                "-!- Connected to %s:%s",
+                client.startup_config.host, client.startup_config.port
+            )
+
     async def create_clients_from_config(self):
         for name, srv in self.config.server.items():
             client = await IRCClient.create(name, srv)
             self.connect(client)
-            if self.log_raw:
-                self._setup_client_raw_logger(client)
+            self._setup_client_raw_logger(client)
 
     def _setup_plugins(self):
         for plug in self.plugins:
@@ -119,33 +169,19 @@ class TamaBot:
                             self.act_commands[alias] = act
                             self.act_commands_idx.add(alias)
 
-
     def _subscribe_client_events(self, client: IRCClient) -> None:
-        client.bus.subscribe(InvitedEvent, self.on_invite)
-        client.bus.subscribe(MessagedEvent, self.on_message)
-        client.bus.subscribe(ActionEvent, self.on_action)
-        client.bus.subscribe(ClosedEvent, self.on_closed)
-        client.bus.subscribe(BotJoinedEvent, self.on_join)
-        client.bus.subscribe(ChannelJoinedEvent, self.on_join)
-        client.bus.subscribe(BotPartedEvent, self.on_part)
-        client.bus.subscribe(ChannelPartedEvent, self.on_part)
-        client.bus.subscribe(BotKickedEvent, self.on_kick)
-        client.bus.subscribe(ChannelKickedEvent, self.on_kick)
+        for evt, handler in self.event_handlers:
+            client.bus.subscribe(evt, handler)  # noqa
 
     def _unsubscribe_client_events(self, client: IRCClient) -> None:
-        client.bus.unsubscribe(InvitedEvent, self.on_invite)
-        client.bus.unsubscribe(MessagedEvent, self.on_message)
-        client.bus.unsubscribe(ActionEvent, self.on_action)
-        client.bus.unsubscribe(ClosedEvent, self.on_closed)
-        client.bus.unsubscribe(BotJoinedEvent, self.on_join)
-        client.bus.unsubscribe(ChannelJoinedEvent, self.on_join)
-        client.bus.unsubscribe(BotPartedEvent, self.on_part)
-        client.bus.unsubscribe(ChannelPartedEvent, self.on_part)
-        client.bus.unsubscribe(BotKickedEvent, self.on_kick)
-        client.bus.unsubscribe(ChannelKickedEvent, self.on_kick)
+        for evt, handler in self.event_handlers:
+            client.bus.unsubscribe(evt, handler)  # noqa
 
     def _setup_client_raw_logger(self, client: IRCClient) -> None:
         if not self.log_raw:
+            # Silence client logger
+            client.logger.addHandler(logging.NullHandler())
+            client.logger.propagate = False
             return
 
         log_dir = Path(self.log_folder)
@@ -215,6 +251,19 @@ class TamaBot:
 
         return self._exit_status
 
+    async def on_welcome_burst(self, evt: WelcomeBurstEvent) -> None:
+        log = self._get_irc_logger(evt.client, evt.client.name)
+        if log:
+            log.info("%s", evt.message)
+
+    async def on_nick_change(self, evt: NickChangeEvent) -> None:
+        log = self._get_irc_logger(evt.client, evt.client.name)
+        if log:
+            log.info(
+                "-!- %s is now known as %s",
+                evt.who.nick, evt.new_nick
+            )
+
     async def on_invite(self, evt: InvitedEvent) -> None:
         evt.client.join(evt.to)
 
@@ -222,7 +271,7 @@ class TamaBot:
         log = self._get_irc_logger(evt.client, evt.channel)
         if log:
             log.info(
-                "* %s (%s) has joined %s",
+                "-!- %s (%s) has joined %s",
                 evt.who.nick, evt.who.address, evt.channel,
             )
 
@@ -230,7 +279,7 @@ class TamaBot:
         log = self._get_irc_logger(evt.client, evt.channel)
         if log:
             log.info(
-                "* %s (%s) has left %s (%s)",
+                "-!- %s (%s) has left %s (%s)",
                 evt.who.nick, evt.who.address, evt.channel, evt.message,
             )
 
@@ -238,10 +287,23 @@ class TamaBot:
         log = self._get_irc_logger(evt.client, evt.channel)
         if log:
             log.info(
-                "* %s (%s) has kicked %s from %s (%s)",
+                "-!- %s (%s) has kicked %s from %s (%s)",
                 evt.who.nick, evt.who.address,
                 evt.target, evt.channel, evt.message,
             )
+
+    async def on_notice(self, evt: NoticedEvent) -> None:
+        if evt.who.is_nil:
+            where = evt.client.name
+        else:
+            where = evt.where
+        log = self._get_irc_logger(evt.client, where)
+        if log:
+            if evt.who.is_nil:
+                # Assume it's a server notice
+                log.info("%s", evt.message)
+            else:
+                log.info("-%s- %s", evt.who.nick, evt.message)
 
     async def on_message(self, evt: MessagedEvent) -> None:
         # Log message before parsing
@@ -250,13 +312,17 @@ class TamaBot:
             log.info("<%s> %s", evt.who.nick, evt.message)
 
         # Use ClientProxy for outbound stuff instead of the client directly
-        client_proxy = ClientProxy(evt.client, self)
+        client_proxy = ClientProxy(
+            client=evt.client,
+            bot=self,
+            ctx=ClientContext(evt.where, evt.who.nick)
+        )
 
         exec_kwargs = dict(
             channel=evt.where,
             sender=evt.who,
             bot=self,
-            client=ClientProxy(evt.client, self)
+            client=client_proxy
         )
 
         # Parse commands
@@ -291,10 +357,16 @@ class TamaBot:
                 for p in r.permissions:
                     if not self.acl.check_permission(evt.who, p):
                         client_proxy.message(
-                            evt.where,
                             f"{evt.who.nick}, you don't have permission to do that."
                         )
                         return
+
+            # Check if the command allows empty queries
+            if r.auto_help:
+                if text.strip() == "":
+                    reply = r.docstring or f"{r.name}: parameters required"
+                    client_proxy.notice(reply)
+                    return
 
             if r.is_async:
                 result = await r.async_executor(text, **exec_kwargs)
@@ -307,11 +379,11 @@ class TamaBot:
                     result = r.executor(text, **exec_kwargs)
 
             if result:
-                client_proxy.message(evt.where, f"{evt.who.nick}, {result}")
+                client_proxy.message(f"{evt.who.nick}, {result}")
 
         # Run regexp parsers
         for r in self.act_regex:
-            match = re.match(r.pattern, evt.message)
+            match = re.search(r.pattern, evt.message)
             if match:
                 if r.is_async:
                     result = await r.async_executor(match, **exec_kwargs)
@@ -319,7 +391,7 @@ class TamaBot:
                     result = r.executor(match, **exec_kwargs)
 
                 if result:
-                    client_proxy.message(evt.where, f"{evt.who.nick}, {result}")
+                    client_proxy.message(f"{evt.who.nick}, {result}")
 
     async def on_action(self, evt: ActionEvent) -> None:
         log = self._get_irc_logger(evt.client, evt.where)
@@ -327,24 +399,46 @@ class TamaBot:
             log.info("* %s %s", evt.who.nick, evt.message)
 
         # Use ClientProxy for outbound stuff instead of the client directly
-        client_proxy = ClientProxy(evt.client, self)
+        client_proxy = ClientProxy(
+            client=evt.client,
+            bot=self,
+            ctx=ClientContext(evt.where, evt.who.nick)
+        )
 
         # Act back at people
         mentioned = evt.client.nickname in evt.message.split(" ")
         if mentioned:
             return_act = evt.message.replace(evt.client.nickname, evt.who.nick)
-            client_proxy.action(evt.where, return_act)
+            client_proxy.action(return_act)
 
     async def on_closed(self, evt: ClosedEvent) -> None:
+        log = self._get_irc_logger(evt.client, evt.client.name)
+        if log:
+            log.info("-!- Disconnected: %s", evt.message)
+
         # Stop listening for events as we are entering a shutdown state
         self._unsubscribe_client_events(evt.client)
+
+    async def on_user_quit(self, evt: UserQuitEvent) -> None:
+        log = self._get_irc_logger(evt.client, evt.client.name)
+        if log:
+            log.info(
+                "-!- %s has quit (%s)",
+                evt.who.nick, evt.message
+            )
+
+    def _quit_client(self, client: IRCClient, reason: str) -> None:
+        log = self._get_irc_logger(client, client.name)
+        if log:
+            log.info("-!- %s has quit (%s)", client.nickname, reason)
+        client.quit(reason)
 
     def shutdown(self, reason: str) -> None:
         self._exit_status = ExitStatus.QUIT
         for client in self.clients:
-            client.quit(reason)
+            self._quit_client(client, reason)
 
     def reload(self, reason: str) -> None:
         self._exit_status = ExitStatus.RELOAD
         for client in self.clients:
-            client.quit(reason)
+            self._quit_client(client, reason)

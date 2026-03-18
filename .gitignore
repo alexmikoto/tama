@@ -15,6 +15,7 @@ dist/
 # Virtualenv
 env/
 venv/
+.venv/
 
 # IDE files
 *.iml

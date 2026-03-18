@@ -3,8 +3,12 @@ import sys
 import importlib
 import importlib.util
 from logging import getLogger
+from typing import TYPE_CHECKING
 
 from .plugin import Plugin
+
+if TYPE_CHECKING:
+    from tama.core.bot import TamaBot
 
 __all__ = ["load_builtins", "load_plugins"]
 
@@ -21,7 +25,7 @@ def load_builtins() -> list[Plugin]:
     ]
 
 
-def load_plugins(path: str, config: dict[str, dict] = None) -> list[Plugin]:
+def load_plugins(path: str, bot: "TamaBot" = None, config: dict[str, dict] = None) -> list[Plugin]:
     py_files = [
         f for f in os.listdir(path)
         if os.path.isfile(os.path.join(path, f)) and f.endswith(".py")
@@ -43,7 +47,7 @@ def load_plugins(path: str, config: dict[str, dict] = None) -> list[Plugin]:
             spec.loader.exec_module(module)
             getLogger(__name__).info(f"Plugin {py} loaded.")
             p = Plugin(module_classname, module)
-            p.on_load(module_config)
+            p.on_load(bot=bot, config=module_config)
             plugins.append(p)
         except SyntaxError:
             getLogger(__name__).error(f"Plugin {py} malformed.")

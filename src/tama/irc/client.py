@@ -4,7 +4,7 @@ observable event stream.
 """
 import asyncio as aio
 from collections import deque
-from time import time
+from time import time, ctime
 from logging import Logger, getLogger
 
 from tama.config import ServerConfig
@@ -69,12 +69,14 @@ class IRCClient:
 
         self.stream = stream
         self.bus = EventBus(accept=[
+            WelcomeBurstEvent,
+            NickChangeEvent,
             InvitedEvent,
             BotJoinedEvent, ChannelJoinedEvent,
             BotPartedEvent, ChannelPartedEvent,
             BotKickedEvent, ChannelKickedEvent,
-            MessagedEvent, ActionEvent, NoticedEvent,
-            ClosedEvent,
+            MessagedEvent, NoticedEvent, ActionEvent,
+            ClosedEvent, UserQuitEvent,
         ])
 
         self._starting_up = True
@@ -166,19 +168,19 @@ class IRCClient:
                 new_messages = await self.stream.read_messages()
             except ConnectionError:
                 # Connection failed, shut down
-                getLogger(__name__).exception("IRC connection error")
+                self.logger.exception("IRC connection error")
                 self._shutting_down = True
                 return
             # Connection done, shut down
             if new_messages is None:
-                getLogger(__name__).info("IRC connection closed")
+                self.logger.info("IRC connection closed")
                 self._shutting_down = True
                 return
             # Queue parsed messages
             self._inbound_queue.extend(new_messages)
 
         msg = self._inbound_queue.popleft()
-        self.logger.info(">> %s", msg.raw[:-2].decode("utf-8"))
+        self.logger.debug(">> %s", msg.raw[:-2].decode("utf-8"))
         # NOTE: Due to the fact all IRC commands are uppercase we turn them
         # to lower for nicer function dispatching.
         srv_handler = getattr(
@@ -191,29 +193,43 @@ class IRCClient:
     async def _outbound(self) -> None:
         # Block until we have a new message to send
         msg = await self._outbound_queue.get()
-        self.logger.info("<< %s", msg.raw[:-2].decode("utf-8"))
+        self.logger.debug("<< %s", msg.raw[:-2].decode("utf-8"))
         try:
             await self.stream.send_message(msg)
         except ConnectionError:
             # Connection failed, shut down
-            getLogger(__name__).exception("IRC connection error")
+            self.logger.exception("IRC connection error")
             self._shutting_down = True
 
     async def _timeout(self) -> None:
         # 30 second PING interval
         await aio.sleep(30)
         if self._waiting_for_pong:
-            # If we timeout and already pinged, die
-            getLogger(__name__).error("IRC connection timed out")
+            # If we time out and already pinged, die
+            self.logger.error("IRC connection timed out")
             self._shutting_down = True
         else:
             msg = str(int(time()))
             self.ping(msg)
             self._waiting_for_pong = msg
 
+    def _startup_complete(self):
+        self._starting_up = False
+        while self._on_register:
+            m = self._on_register.popleft()
+            self._outbound_queue.put_nowait(m)
+
+    def _dispatch_ctcp_handler(self, msg: IRCMessage) -> None:
+        srv_handler = getattr(
+            self,
+            "handle_server_ctcp_" + msg.ctcp.command.lower(),
+            self.handle_server_ctcp_default,
+        )
+        srv_handler(msg)
+
     # Upstream command handlers
     def handle_server_default(self, msg: IRCMessage) -> None:
-        getLogger(__name__).debug("Unhandled IRC message: %s", msg.command)
+        self.logger.debug("Unhandled IRC message: %s", msg.command)
         # Do nothing for unhandled commands
         return
 
@@ -228,16 +244,16 @@ class IRCClient:
         who = msg.parse_prefix_as_user()
         if who.nick == self.nickname:
             self.nickname = msg.trailing
+        self.bus.broadcast(NickChangeEvent(
+            client=self,
+            who=who,
+            new_nick=msg.trailing,
+        ))
 
     def handle_server_privmsg(self, msg: IRCMessage) -> None:
         # CTCP messages require further processing
         if msg.ctcp is not None:
-            srv_handler = getattr(
-                self,
-                "handle_server_ctcp_" + msg.ctcp.command.lower(),
-                self.handle_server_ctcp_default,
-            )
-            srv_handler(msg)
+            self._dispatch_ctcp_handler(msg)
             return
 
         # If command param is the client nick, set the user as the location
@@ -253,6 +269,11 @@ class IRCClient:
         ))
 
     def handle_server_notice(self, msg: IRCMessage) -> None:
+        # CTCP messages require further processing
+        if msg.ctcp is not None:
+            self._dispatch_ctcp_handler(msg)
+            return
+
         # If command param is the client nick, set the user as the location
         who = msg.parse_prefix_as_user()
         where = msg.middle[0]
@@ -294,7 +315,7 @@ class IRCClient:
             try:
                 self._channel_list.remove(msg.trailing)
             except ValueError:
-                getLogger(__name__).error(
+                self.logger.error(
                     "Parted a channel that was never joined."
                 )
             self.bus.broadcast(BotPartedEvent(
@@ -318,7 +339,7 @@ class IRCClient:
             try:
                 self._channel_list.remove(msg.trailing)
             except ValueError:
-                getLogger(__name__).error(
+                self.logger.error(
                     "Kicked from a channel that was never joined."
                 )
             self.bus.broadcast(BotKickedEvent(
@@ -337,6 +358,14 @@ class IRCClient:
                 message=msg.trailing,
             ))
 
+    def handle_server_quit(self, msg: IRCMessage) -> None:
+        who = msg.parse_prefix_as_user()
+        self.bus.broadcast(UserQuitEvent(
+            client=self,
+            who=who,
+            message=msg.trailing,
+        ))
+
     def handle_server_error(self, msg: IRCMessage) -> None:
         self.bus.broadcast(ClosedEvent(
             client=self,
@@ -345,22 +374,24 @@ class IRCClient:
 
     # CTCP handlers
     def handle_server_ctcp_default(self, msg: IRCMessage) -> None:
-        getLogger(__name__).debug("Unhandled CTCP message: %s", msg.ctcp.command)
+        self.logger.debug("Unhandled CTCP message: %s", msg.ctcp.command)
         # Do nothing for unhandled CTCP commands
         return
 
     # A bunch of these will always will be a direct PRIVMSG to a user
     def handle_server_ctcp_clientinfo(self, msg: IRCMessage) -> None:
         reply_to = msg.parse_prefix_as_user()
-        self.ctcp(reply_to.nick, "CLIENTINFO", "ACTION CLIENTINFO VERSION")
+        self.ctcp(reply_to.nick, "CLIENTINFO", "ACTION CLIENTINFO VERSION TIME")
 
     def handle_server_ctcp_version(self, msg: IRCMessage) -> None:
         reply_to = msg.parse_prefix_as_user()
-        self.ctcp(reply_to.nick, "VERSION", f"tama {self.version}")
+        if msg.ctcp.text is None:
+            # This is a VERSION request
+            self.ctcp(reply_to.nick, "VERSION", f"tama {self.version}")
 
     def handle_server_ctcp_time(self, msg: IRCMessage) -> None:
         reply_to = msg.parse_prefix_as_user()
-        self.ctcp(reply_to.nick, "VERSION", f"tama {self.version}")
+        self.ctcp(reply_to.nick, "TIME", ctime(None))
 
     def handle_server_ctcp_action(self, msg: IRCMessage) -> None:
         who = msg.parse_prefix_as_user()
@@ -375,11 +406,35 @@ class IRCClient:
         ))
 
     # Upstream reply code handlers
-    def handle_server_rpl_welcome(self, msg: IRCMessage) -> None:
-        self._starting_up = False
-        while self._on_register:
-            m = self._on_register.popleft()
-            self._outbound_queue.put_nowait(m)
+    def handle_server_welcome_burst(self, msg: IRCMessage) -> None:
+        self.bus.broadcast(WelcomeBurstEvent(
+            client=self,
+            message=msg.trailing,
+        ))
+
+    handle_server_rpl_welcome = handle_server_welcome_burst
+    handle_server_rpl_yourhost = handle_server_welcome_burst
+    handle_server_rpl_created = handle_server_welcome_burst
+    handle_server_rpl_myinfo = handle_server_welcome_burst
+    handle_server_rpl_isupport = handle_server_welcome_burst
+    handle_server_rpl_luserclient = handle_server_welcome_burst
+    handle_server_rpl_luserop = handle_server_welcome_burst
+    handle_server_rpl_luserhannels = handle_server_welcome_burst
+    handle_server_rpl_luserme = handle_server_welcome_burst
+    handle_server_rpl_localusers = handle_server_welcome_burst
+    handle_server_rpl_globalusers = handle_server_welcome_burst
+    handle_server_rpl_motdstart = handle_server_welcome_burst
+    handle_server_rpl_motd = handle_server_welcome_burst
+
+    # MOTD is the last step that MUST be performed after completion of the
+    # registration process, thus we wait until RPL_ENDOFMOTD or ERR_NOMOTD
+    # in order to start sending our post-startup messages
+    def handle_server_rpl_endofmotd(self, msg: IRCMessage) -> None:
+        self.handle_server_welcome_burst(msg)
+        if self._starting_up:
+            self._startup_complete()
+
+    handle_server_err_nomotd = handle_server_rpl_endofmotd
 
     def handle_server_err_nicknameinuse(self, msg: IRCMessage) -> None:
         # If we are still starting up, then retry with an underscore

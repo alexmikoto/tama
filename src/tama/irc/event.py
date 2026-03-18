@@ -8,14 +8,34 @@ if TYPE_CHECKING:
     from tama.irc.client import IRCClient
 
 __all__ = [
+    "WelcomeBurstEvent",
+    "NickChangeEvent",
     "InvitedEvent",
     "JoinedEvent", "BotJoinedEvent", "ChannelJoinedEvent",
     "PartedEvent", "BotPartedEvent", "ChannelPartedEvent",
     "KickedEvent", "BotKickedEvent", "ChannelKickedEvent",
-    "MessagedEvent", "ActionEvent",
-    "NoticedEvent",
-    "ClosedEvent"
+    "MessagedEvent", "NoticedEvent", "ActionEvent",
+    "ClosedEvent", "UserQuitEvent",
 ]
+
+
+@dataclass
+class WelcomeBurstEvent(Event):
+    """
+    IRC server welcome messages.
+    """
+    client: "IRCClient"
+    message: str
+
+
+@dataclass
+class NickChangeEvent(Event):
+    """
+    A user changed IRC nickname.
+    """
+    client: "IRCClient"
+    who: IRCUser
+    new_nick: str
 
 
 @dataclass
@@ -115,9 +135,9 @@ class MessagedEvent(Event):
 
 
 @dataclass
-class ActionEvent(Event):
+class NoticedEvent(Event):
     """
-    Received a CTCP action message.
+    Received an IRC notice.
     """
     client: "IRCClient"
     who: IRCUser
@@ -126,9 +146,9 @@ class ActionEvent(Event):
 
 
 @dataclass
-class NoticedEvent(Event):
+class ActionEvent(Event):
     """
-    Received an IRC notice.
+    Received a CTCP action message.
     """
     client: "IRCClient"
     who: IRCUser
@@ -142,4 +162,14 @@ class ClosedEvent(Event):
     IRC connection will be closed
     """
     client: "IRCClient"
+    message: str
+
+
+@dataclass
+class UserQuitEvent(Event):
+    """
+    Another user quit the IRC server.
+    """
+    client: "IRCClient"
+    who: IRCUser
     message: str

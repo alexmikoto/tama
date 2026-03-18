@@ -38,6 +38,7 @@ class OnLoad(Action):
             self,
             *,
             config: dict = None,
+            bot: "TamaBot" = None,
         ) -> None: ...
 
     def __init__(
@@ -50,6 +51,7 @@ class OnLoad(Action):
 class Command(Action):
     name: str
     aliases: list[str]
+    auto_help: bool
     docstring: str | None
     executor: "Command.Executor | None"
     async_executor: "Command.AsyncExecutor | None"
@@ -57,8 +59,8 @@ class Command(Action):
     blocking: bool
 
     __slots__ = (
-        "name", "aliases", "docstring", "executor", "async_executor",
-        "permissions", "blocking",
+        "name", "aliases", "auto_help", "docstring", "executor",
+        "async_executor", "permissions", "blocking",
     )
 
     class Executor(Protocol):
@@ -88,6 +90,7 @@ class Command(Action):
         executor: "Command.Executor | Command.AsyncExecutor",
         name: str,
         aliases: list[str] | None = None,
+        auto_help: bool = True,
         docstring: str | None = None,
         permissions: list[str] | None = None,
         blocking: bool = False,
@@ -95,6 +98,7 @@ class Command(Action):
         super().__init__(executor)
         self.name = name
         self.aliases = aliases
+        self.auto_help = auto_help
         self.docstring = docstring
         self.permissions = permissions
         self.blocking = blocking

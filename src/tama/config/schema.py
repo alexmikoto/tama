@@ -34,6 +34,8 @@ class TamaConfig:
     log_folder: str | None
     log_raw: bool | None
     log_irc: bool | None
+    plugin_folder: str | None
+    data_folder: str | None
     permissions: dict[str, PermissionGroupConfig] | None
     plugins: dict[str, dict] | None
 

@@ -22,7 +22,7 @@ import random
 from pathlib import Path
 from typing import List
 from dataclasses import dataclass
-from tama import api, TamaBot
+from tama import api
 
 fortunes: List["FortuneFile"] = []
 
@@ -89,17 +89,17 @@ def get_fortune_from_file(file: FortuneFile) -> str:
     return cookie
 
 
-@api.command()
-def fortune(_, channel: str = None, client: TamaBot.Client = None) -> None:
+@api.command(auto_help=False)
+def fortune(_, client: api.Client = None) -> None:
     cookie = get_fortune()
     for line in cookie.split("\n"):
-        client.message(channel, line)
+        client.message(line)
 
 
-@api.command()
-def book(_, channel: str = None, client: TamaBot.Client = None) -> None:
+@api.command(auto_help=False)
+def book(_, client: api.Client = None) -> None:
     cookie = get_fortune_from_file(
         next(f for f in fortunes if f.name == "literature")
     )
     for line in cookie.split("\n"):
-        client.message(channel, line)
+        client.message(line)

@@ -11,7 +11,16 @@ from collections.abc import Callable
 
 from .api_internal import *
 
-__all__ = ["on_load", "command", "regex"]
+# Load symbols to present them for plugin modules
+from tama.core.bot import TamaBot
+from tama.core.client_proxy import ClientProxy
+from tama.irc.user import IRCUser
+
+__all__ = ["Bot", "Client", "User", "on_load", "command", "regex"]
+
+Bot = TamaBot
+Client = ClientProxy
+User = IRCUser
 
 
 def _log_exception(exc: Exception):
@@ -56,23 +65,32 @@ def _wrap_kwargs(f: Callable) -> Callable:
         return wrapper
 
 
-
 def on_load():
     def decorator(f: OnLoad.Executor):
+        sig = inspect.signature(f)
+
         # No exception wrapper as these should be propagated to inform the bot
         # the plugin load failed
+        @functools.wraps(f)
+        def wrapper(*args, **kwargs) -> str | None:
+            w_kwargs = {
+                k: v for k, v in kwargs.items() if k in sig.parameters.keys()
+            }
+            return f(*args, **w_kwargs)
+
         setattr(
-            f,
+            wrapper,
             "_tama_action",
-            OnLoad(f),
+            OnLoad(wrapper),
         )
-        return f
+        return wrapper
     return decorator
 
 
 def command(
     name: str = None,
     *aliases: str,
+    auto_help: bool = True,
     permissions: list[str] = None,
     blocking: bool = False,
 ):
@@ -82,12 +100,13 @@ def command(
             wrapper,
             "_tama_action",
             Command(
-                wrapper,
-                name or f.__name__,
-                [*aliases],
-                f.__doc__.split("\n")[0].strip() if f.__doc__ is not None else None,
-                permissions,
-                blocking,
+                executor=wrapper,
+                name=name or f.__name__,
+                aliases=[*aliases],
+                auto_help=auto_help,
+                docstring=f.__doc__.split("\n")[0].strip() if f.__doc__ is not None else None,
+                permissions=permissions,
+                blocking=blocking,
             ),
         )
         return wrapper
@@ -100,7 +119,7 @@ def regex(pattern: str | re.Pattern):
         setattr(
             wrapper,
             "_tama_action",
-            Regex(wrapper, pattern)
+            Regex(executor=wrapper, pattern=pattern)
         )
         return wrapper
     return decorator

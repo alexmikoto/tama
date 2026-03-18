@@ -1,5 +1,10 @@
 """
-youtube.py has been ported directly from CloudBot.
+youtube.py
+
+This plugin has been ported directly from CloudBot, which is under the GPLv3
+license.
+
+All credit goes to the Cloudbot maintainers.
 """
 from __future__ import annotations
 
@@ -10,7 +15,7 @@ from typing import TYPE_CHECKING
 import isodate
 import requests
 
-from tama import api, TamaBot
+from tama import api
 from tama.util.legacy import colors, timeformat
 from tama.util.legacy.formatting import pluralize_suffix
 
@@ -208,23 +213,20 @@ def youtube_url(match: Match[str]) -> str | None:
 
 
 @api.command("youtube", "you", "yt", "y", blocking=True)
-def youtube(text: str, channel: str = None, client: TamaBot.Client = None) -> str:
-    """<query> - Returns the first YouTube search result for <query>.
-
-    :param text: User input
-    """
+def youtube(text: str, client: api.Client = None) -> str:
+    """<query> - Returns the first YouTube search result for <query>."""
     try:
         video_id = get_video_id(text)
         return f"{get_video_description(video_id)} - {make_short_url(video_id)}"
     except NoResultsError as e:
         return e.message
     except APIError as e:
-        client.message(channel, e.message)
+        client.message(e.message)
         raise
 
 
 @api.command("youtime", "ytime", blocking=True)
-def youtime(text: str, channel: str = None, client: TamaBot.Client = None) -> str:
+def youtime(text: str, client: api.Client = None) -> str:
     """<query> - Gets the total run time of the first YouTube search result for <query>."""
     parts = ["statistics", "contentDetails", "snippet"]
     try:
@@ -234,7 +236,7 @@ def youtime(text: str, channel: str = None, client: TamaBot.Client = None) -> st
     except NoResultsError as e:
         return e.message
     except APIError as e:
-        client.message(channel, e.message)
+        client.message(e.message)
         raise
 
     json = request.json()

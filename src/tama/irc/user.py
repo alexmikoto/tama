@@ -9,6 +9,8 @@ class IRCUser:
     user: str
     host: str
 
+    is_nil: bool = False
+
     @property
     def address(self) -> str:
         return f"{self.nick}!{self.user}@{self.host}"

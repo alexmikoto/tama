@@ -18,7 +18,8 @@ class IRCClient:
     __slots__ = (
         "name", "startup_config", "version", "stream", "bus",
         "nickname", "username", "realname",
-        "_channel_list",
+        "channel_list", "irc_mode",
+        "_joining_state",
         "logger_name", "logger",
         "_starting_up", "_shutting_down", "_inbound_queue", "_outbound_queue",
         "_on_register",
@@ -39,8 +40,11 @@ class IRCClient:
     username: str
     realname: str
 
-    # State keeping
-    _channel_list: list[str]
+    # IRC state keeping
+    channel_list: list[str]
+    irc_mode: str
+
+    _joining_state: dict[str, BotJoinedEvent]
 
     # Raw IRC protocol logger
     logger_name: str
@@ -70,6 +74,7 @@ class IRCClient:
         self.stream = stream
         self.bus = EventBus(accept=[
             WelcomeBurstEvent,
+            BotModeChangeEvent, ChannelModeChangeEvent,
             NickChangeEvent,
             InvitedEvent,
             BotJoinedEvent, ChannelJoinedEvent,
@@ -90,7 +95,9 @@ class IRCClient:
         self.username = startup_config.user
         self.realname = startup_config.realname
 
-        self._channel_list = []
+        self.channel_list = []
+        self.irc_mode = ""
+        self._joining_state = {}
 
         self.logger_name = f"tama.server.{name}.raw"
         self.logger = getLogger(self.logger_name)
@@ -114,13 +121,12 @@ class IRCClient:
             cmd += config.service_auth.password
             obj._on_register.append(IRCMessage(
                 command="PRIVMSG",
-                middle=(config.service_auth.service or "NickServ",),
-                trailing=cmd,
+                params=(config.service_auth.service or "NickServ", cmd),
             ))
         if config.channels:
             obj._on_register.extend([IRCMessage(
                 command="JOIN",
-                middle=(chan,)
+                params=(chan,)
             ) for chan in config.channels])
         return obj
 
@@ -250,6 +256,27 @@ class IRCClient:
             new_nick=msg.trailing,
         ))
 
+    def handle_server_mode(self, msg: IRCMessage) -> None:
+        who = msg.parse_prefix_as_user()
+        target = msg.params[0]
+        if target == self.nickname:
+            self.irc_mode = msg.trailing[1]
+            self.bus.broadcast(BotModeChangeEvent(
+                client=self,
+                who=who,
+                target=target,
+                mode=msg.params[1] if len(msg.params) >= 2 else None,
+                args=msg.params[2:],
+            ))
+        elif target[0] == "#":
+            self.bus.broadcast(ChannelModeChangeEvent(
+                client=self,
+                who=who,
+                target=target,
+                mode=msg.params[1] if len(msg.params) >= 2 else None,
+                args=msg.params[2:],
+            ))
+
     def handle_server_privmsg(self, msg: IRCMessage) -> None:
         # CTCP messages require further processing
         if msg.ctcp is not None:
@@ -258,7 +285,7 @@ class IRCClient:
 
         # If command param is the client nick, set the user as the location
         who = msg.parse_prefix_as_user()
-        where = msg.middle[0]
+        where = msg.params[0]
         if where == self.nickname:
             where = who.nick
         self.bus.broadcast(MessagedEvent(
@@ -276,7 +303,7 @@ class IRCClient:
 
         # If command param is the client nick, set the user as the location
         who = msg.parse_prefix_as_user()
-        where = msg.middle[0]
+        where = msg.params[0]
         if where == self.nickname:
             where = who.nick
         self.bus.broadcast(NoticedEvent(
@@ -296,12 +323,16 @@ class IRCClient:
     def handle_server_join(self, msg: IRCMessage) -> None:
         who = msg.parse_prefix_as_user()
         if who.nick == self.nickname:
-            self._channel_list.append(msg.trailing)
-            self.bus.broadcast(BotJoinedEvent(
+            # Don't broadcast this yet, wait for the numerics to be received
+            self._joining_state[msg.trailing] = BotJoinedEvent(
                 client=self,
                 channel=msg.trailing,
                 who=who,
-            ))
+                topic=None,
+                topic_at=None,
+                topic_by=None,
+                userlist=tuple(),
+            )
         else:
             self.bus.broadcast(ChannelJoinedEvent(
                 client=self,
@@ -313,31 +344,31 @@ class IRCClient:
         who = msg.parse_prefix_as_user()
         if who.nick == self.nickname:
             try:
-                self._channel_list.remove(msg.trailing)
+                self.channel_list.remove(msg.trailing)
             except ValueError:
                 self.logger.error(
                     "Parted a channel that was never joined."
                 )
             self.bus.broadcast(BotPartedEvent(
                 client=self,
-                channel=msg.middle[0],
+                channel=msg.params[0],
                 who=who,
                 message=msg.trailing,
             ))
         else:
             self.bus.broadcast(ChannelPartedEvent(
                 client=self,
-                channel=msg.middle[0],
+                channel=msg.params[0],
                 who=who,
                 message=msg.trailing,
             ))
 
     def handle_server_kick(self, msg: IRCMessage) -> None:
         who = msg.parse_prefix_as_user()
-        chan, target, *_ = msg.middle
+        chan, target, *_ = msg.params
         if target == self.nickname:
             try:
-                self._channel_list.remove(msg.trailing)
+                self.channel_list.remove(msg.trailing)
             except ValueError:
                 self.logger.error(
                     "Kicked from a channel that was never joined."
@@ -395,7 +426,7 @@ class IRCClient:
 
     def handle_server_ctcp_action(self, msg: IRCMessage) -> None:
         who = msg.parse_prefix_as_user()
-        where = msg.middle[0]
+        where = msg.params[0]
         if where == self.nickname:
             where = who.nick
         self.bus.broadcast(ActionEvent(
@@ -409,7 +440,7 @@ class IRCClient:
     def handle_server_welcome_burst(self, msg: IRCMessage) -> None:
         self.bus.broadcast(WelcomeBurstEvent(
             client=self,
-            message=msg.trailing,
+            message=" ".join(msg.params[1:]),
         ))
 
     handle_server_rpl_welcome = handle_server_welcome_burst
@@ -419,7 +450,8 @@ class IRCClient:
     handle_server_rpl_isupport = handle_server_welcome_burst
     handle_server_rpl_luserclient = handle_server_welcome_burst
     handle_server_rpl_luserop = handle_server_welcome_burst
-    handle_server_rpl_luserhannels = handle_server_welcome_burst
+    handle_server_rpl_luserunknown = handle_server_welcome_burst
+    handle_server_rpl_luserchannels = handle_server_welcome_burst
     handle_server_rpl_luserme = handle_server_welcome_burst
     handle_server_rpl_localusers = handle_server_welcome_burst
     handle_server_rpl_globalusers = handle_server_welcome_burst
@@ -442,57 +474,84 @@ class IRCClient:
             self.nickname = self.nickname + "_"
             self.nick(self.nickname)
 
+    def handle_server_rpl_topic(self, msg: IRCMessage) -> None:
+        _, channel, topic = msg.params
+        if channel in self._joining_state:
+            self._joining_state[channel].topic = topic
+
+    def handle_server_rpl_topicwhotime(self, msg: IRCMessage) -> None:
+        _, channel, nick, at = msg.params
+        if channel in self._joining_state:
+            self._joining_state[channel].topic_by = nick
+            self._joining_state[channel].topic_at = ctime(int(at))
+
+    def handle_server_rpl_namreply(self, msg: IRCMessage) -> None:
+        _, symbol, channel, users = msg.params
+        if channel in self._joining_state:
+            self._joining_state[channel].userlist += tuple(users.split(" "))
+
+    def handle_server_rpl_endofnames(self, msg: IRCMessage) -> None:
+        _, channel, trailing = msg.params
+        if channel in self._joining_state:
+            self.bus.broadcast(self._joining_state[channel])
+            del self._joining_state[channel]
+            self.channel_list.append(channel)
+
     # Command executors
     def user(self, username: str, realname: str) -> None:
         self._outbound_queue.put_nowait(IRCMessage(
             command="USER",
-            middle=(username, "0", "*"),
-            trailing=realname,
+            params=(username, "0", "*", realname),
         ))
 
     def nick(self, nickname: str) -> None:
         self._outbound_queue.put_nowait(IRCMessage(
             command="NICK",
-            trailing=nickname,
+            params=(nickname,),
         ))
 
     def ping(self, payload: str) -> None:
         self._outbound_queue.put_nowait(IRCMessage(
             command="PING",
-            trailing=payload,
+            params=(payload,),
         ))
 
     def pong(self, payload: str) -> None:
         self._outbound_queue.put_nowait(IRCMessage(
             command="PONG",
-            trailing=payload,
+            params=(payload,),
         ))
 
     def join(self, channel: str) -> None:
         self._outbound_queue.put_nowait(IRCMessage(
             command="JOIN",
-            middle=(channel,)
+            params=(channel,),
+        ))
+
+    def part(self, channel: str, reason: str) -> None:
+        self._outbound_queue.put_nowait(IRCMessage(
+            command="PART",
+            params=(channel, reason),
         ))
 
     def notice(self, target: str, message: str) -> None:
         self._outbound_queue.put_nowait(IRCMessage(
             command="NOTICE",
-            middle=(target,),
-            trailing=message,
+            params=(target, message),
         ))
 
     def privmsg(self, target: str, message: str) -> None:
         self._outbound_queue.put_nowait(IRCMessage(
             command="PRIVMSG",
-            middle=(target,),
-            trailing=message,
+            params=(target, message),
         ))
 
     def ctcp(self, target: str, command: str, message: str) -> None:
-        self._outbound_queue.put_nowait(IRCMessage(
+        self._outbound_queue.put_nowait(IRCMessage.encapsulate_ctcp(
             command="PRIVMSG",
-            middle=(target,),
-            ctcp=IRCMessage.CTCP(command=command, text=message),
+            target=target,
+            ctcp_command=command,
+            ctcp_text=message,
         ))
 
     def action(self, target: str, message: str) -> None:
@@ -501,5 +560,5 @@ class IRCClient:
     def quit(self, reason: str) -> None:
         self._outbound_queue.put_nowait(IRCMessage(
             command="QUIT",
-            trailing=reason,
+            params=(reason,),
         ))

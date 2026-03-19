@@ -36,8 +36,15 @@ class ClientProxy:
     def nickname(self) -> str:
         return self.client.nickname
 
+    @property
+    def channel_list(self):
+        return self.client.channel_list
+
     def join(self, channel: str):
         self.client.join(channel)
+
+    def part(self, channel: str):
+        self.client.part(channel, "Leaving")
 
     def nick(self, nickname: str):
         self.client.nick(nickname)

@@ -93,7 +93,8 @@ def get_fortune_from_file(file: FortuneFile) -> str:
 async def fortune(_, client: api.Client = None) -> None:
     cookie = get_fortune()
     for line in cookie.split("\n"):
-        client.message(line)
+        if line:
+            client.message(line)
 
 
 @api.command(auto_help=False)

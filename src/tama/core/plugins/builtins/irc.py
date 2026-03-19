@@ -1,13 +1,13 @@
 from tama import api
 from string import ascii_letters, digits
 
-__all__ = ["nick", "join", "say", "act", "message","quit_", "reload"]
+__all__ = ["nick", "join", "part", "say", "act", "message","quit_", "reload"]
 
 special = "[]\\`_^{|}"
 
 
 @api.command(permissions=["bot_control"])
-def nick(
+async def nick(
     text: str, client: api.Client = None
 ) -> None:
     """<nick> - changes nick to <nick>"""
@@ -25,11 +25,12 @@ def nick(
     if any(c not in allowed_chars for c in new_nick[1:]):
         client.notice("Invalid nickname")
         return
+    client.notice(f"Attempting to change nickname to {new_nick}")
     client.nick(new_nick)
 
 
 @api.command(permissions=["bot_control"])
-def join(
+async def join(
     text: str, client: api.Client = None
 ) -> None:
     """<channel> - joins <channel>"""
@@ -41,7 +42,22 @@ def join(
 
 
 @api.command(permissions=["bot_control"])
-def say(
+async def part(
+    text: str, client: api.Client = None
+) -> None:
+    """<channel> - parts from <channel>"""
+    channel, *other = text.strip().split(" ", 1)
+    if len(other) > 0:
+        client.notice("Invalid channel")
+        return
+    if channel not in client.channel_list:
+        client.notice("Not currently in channel")
+        return
+    client.part(channel)
+
+
+@api.command(permissions=["bot_control"])
+async def say(
     text: str, channel: str,
     client: api.Client = None
 ) -> None:
@@ -59,7 +75,7 @@ def say(
 
 
 @api.command(permissions=["bot_control"])
-def act(
+async def act(
     text: str, channel: str,
     client: api.Client = None
 ) -> None:
@@ -76,7 +92,7 @@ def act(
 
 
 @api.command(permissions=["bot_control"])
-def message(
+async def message(
     text: str, client: api.Client = None
 ) -> None:
     """<target> <text> - sends an IRC message to <target> with <text>."""
@@ -87,7 +103,7 @@ def message(
 
 
 @api.command(permissions=["bot_control"])
-def notice(
+async def notice(
     text: str, client: api.Client = None
 ) -> None:
     """<target> <text> - sends an IRC notice to <target> with <text>."""
@@ -98,14 +114,14 @@ def notice(
 
 
 @api.command("quit", permissions=["bot_control"], auto_help=False)
-def quit_(text: str, bot: api.Bot = None) -> None:
+async def quit_(text: str, bot: api.Bot = None) -> None:
     """shuts down the bot."""
     reason = text.strip()
     bot.shutdown(reason)
 
 
 @api.command(permissions=["bot_control"], auto_help=False)
-def reload(text: str, bot: api.Bot = None) -> None:
+async def reload(text: str, bot: api.Bot = None) -> None:
     """reloads the bot."""
     reason = text.strip()
     bot.reload(reason)

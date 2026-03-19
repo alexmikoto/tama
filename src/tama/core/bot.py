@@ -25,6 +25,8 @@ from .exc import NameCollisionError
 
 __all__ = ["TamaBot"]
 
+from ..irc.event import ModeChangeEvent
+
 
 class TamaBot:
     config: Config
@@ -102,6 +104,8 @@ class TamaBot:
         # Populate list of event observers
         self.event_handlers = [
             (WelcomeBurstEvent, self.on_welcome_burst),
+            (BotModeChangeEvent, self.on_bot_mode_change),
+            (ChannelModeChangeEvent, self.on_channel_mode_change),
             (NickChangeEvent, self.on_nick_change),
             (InvitedEvent, self.on_invite),
             (BotJoinedEvent, self.on_join),
@@ -179,10 +183,13 @@ class TamaBot:
 
     def _setup_client_raw_logger(self, client: IRCClient) -> None:
         if not self.log_raw:
-            # Silence client logger
+            # Ignore client logger
             client.logger.addHandler(logging.NullHandler())
-            client.logger.propagate = False
             return
+
+        if client.logger.level == logging.NOTSET:
+            # If we are logging raw I/O we want to default to DEBUG
+            client.logger.setLevel(logging.DEBUG)
 
         log_dir = Path(self.log_folder)
         if not log_dir.is_dir():
@@ -203,7 +210,7 @@ class TamaBot:
         self, client: IRCClient, buffer: str
     ) -> logging.Logger | None:
         if not self.log_irc:
-            return
+            return None
 
         log_dir = Path(self.log_folder, client.name)
         if not log_dir.is_dir():
@@ -256,6 +263,28 @@ class TamaBot:
         if log:
             log.info("%s", evt.message)
 
+    async def on_bot_mode_change(self, evt: BotModeChangeEvent) -> None:
+        log = self._get_irc_logger(evt.client, evt.client.name)
+        if log:
+            log.info(
+                "-!- Modes %s %s by %s",
+                evt.target, evt.mode, evt.who.nick
+            )
+
+    async def on_channel_mode_change(self, evt: ChannelModeChangeEvent) -> None:
+        log = self._get_irc_logger(evt.client, evt.target)
+        if log:
+            if len(evt.args):
+                log.info(
+                    "-!- Mode %s %s %s by %s",
+                    evt.target, evt.mode, " ".join(evt.args), evt.who.nick
+                )
+            else:
+                log.info(
+                    "-!- Mode %s %s by %s",
+                    evt.target, evt.mode, evt.who.nick
+                )
+
     async def on_nick_change(self, evt: NickChangeEvent) -> None:
         log = self._get_irc_logger(evt.client, evt.client.name)
         if log:
@@ -274,6 +303,21 @@ class TamaBot:
                 "-!- %s (%s) has joined %s",
                 evt.who.nick, evt.who.address, evt.channel,
             )
+            if isinstance(evt, BotJoinedEvent):
+                if evt.topic is not None:
+                    log.info(
+                        "-!- Topic for %s is \"%s\"",
+                        evt.channel, evt.topic,
+                    )
+                if evt.topic_by is not None and evt.topic_at is not None:
+                    log.info(
+                        "-!- Topic set by %s on %s",
+                        evt.topic_by, evt.topic_at,
+                    )
+                log.info(
+                    "-!- %s users: %s",
+                    evt.channel, " ".join(evt.userlist)
+                )
 
     async def on_part(self, evt: BotPartedEvent | ChannelPartedEvent) -> None:
         log = self._get_irc_logger(evt.client, evt.channel)
@@ -369,10 +413,10 @@ class TamaBot:
                     return
 
             if r.is_async:
-                result = await r.async_executor(text, **exec_kwargs)
+                result = await r.async_executor(text.strip(), **exec_kwargs)
             else:
                 result = await aio.get_running_loop().run_in_executor(
-                    None, functools.partial(r.executor, text, **exec_kwargs)
+                    None, functools.partial(r.executor, text.strip(), **exec_kwargs)
                 )
 
             if result:

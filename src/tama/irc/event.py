@@ -9,6 +9,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "WelcomeBurstEvent",
+    "BotModeChangeEvent", "ChannelModeChangeEvent",
     "NickChangeEvent",
     "InvitedEvent",
     "JoinedEvent", "BotJoinedEvent", "ChannelJoinedEvent",
@@ -26,6 +27,30 @@ class WelcomeBurstEvent(Event):
     """
     client: "IRCClient"
     message: str
+
+
+@dataclass
+class ModeChangeEvent(Event):
+    """
+    IRC modes changed for either a user or a channel.
+    """
+    client: "IRCClient"
+    who: IRCUser
+    target: str
+    mode: str
+    args: tuple[str, ...]
+
+
+class BotModeChangeEvent(ModeChangeEvent):
+    """
+    Bot IRC modes changed.
+    """
+
+
+class ChannelModeChangeEvent(ModeChangeEvent):
+    """
+    Channel IRC modes changed.
+    """
 
 
 @dataclass
@@ -63,6 +88,10 @@ class BotJoinedEvent(JoinedEvent):
     """
     Bot joined an IRC channel.
     """
+    topic: str | None
+    topic_by: str | None
+    topic_at: str | None
+    userlist: tuple[str, ...]
 
 
 @dataclass

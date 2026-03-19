@@ -4,7 +4,7 @@ __all__ = ["help_"]
 
 
 @api.command("help", auto_help=False)
-def help_(
+async def help_(
     text: str,
     bot: api.Bot = None, client: api.Client = None
 ) -> None:

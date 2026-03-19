@@ -185,16 +185,19 @@ class IRCClient:
             # Queue parsed messages
             self._inbound_queue.extend(new_messages)
 
-        msg = self._inbound_queue.popleft()
-        self.logger.debug(">> %s", msg.raw[:-2].decode("utf-8"))
-        # NOTE: Due to the fact all IRC commands are uppercase we turn them
-        # to lower for nicer function dispatching.
-        srv_handler = getattr(
-            self,
-            "handle_server_" + msg.command.lower(),
-            self.handle_server_default,
-            )
-        srv_handler(msg)
+        try:
+            msg = self._inbound_queue.popleft()
+            self.logger.debug(">> %s", msg.raw[:-2].decode("utf-8"))
+            # NOTE: Due to the fact all IRC commands are uppercase we turn them
+            # to lower for nicer function dispatching.
+            srv_handler = getattr(
+                self,
+                "handle_server_" + msg.command.lower(),
+                self.handle_server_default,
+                )
+            srv_handler(msg)
+        except IndexError:
+            self.logger.exception("Inbound called with an empty queue")
 
     async def _outbound(self) -> None:
         # Block until we have a new message to send

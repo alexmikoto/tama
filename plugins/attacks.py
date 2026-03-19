@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
 from collections import defaultdict
 from enum import Enum, unique
 from typing import Any
@@ -26,6 +25,7 @@ class RespType(Enum):
     ACTION = 1
     MESSAGE = 2
     REPLY = 3
+
 
 def is_nick_valid(nick: str) -> bool:
     return bool(irc_nick_re.fullmatch(nick))
@@ -168,7 +168,7 @@ def load_data(path, data_dict) -> None:
 @api.on_load()
 def load_attacks(bot: api.Bot = None) -> None:
     attack_data.clear()
-    data_dir = Path(bot.data_folder) / "attacks"
+    data_dir = bot.data_path / "attacks"
     for data_file in ATTACKS:
         load_data(data_dir / data_file.file, attack_data[data_file.name])
 

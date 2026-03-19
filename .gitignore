@@ -2,6 +2,7 @@
 config.toml
 logs/
 data/fortune/*
+*.db
 
 # Python
 *.py[cdo]

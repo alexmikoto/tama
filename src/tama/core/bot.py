@@ -35,8 +35,8 @@ class TamaBot:
     log_raw: bool
     log_irc: bool
 
-    plugin_folder: str
-    data_folder: str
+    _plugin_folder: str
+    _data_folder: str
 
     clients: list[IRCClient]
     plugins: list[Plugin]
@@ -73,10 +73,10 @@ class TamaBot:
             config.tama.log_irc if config.tama.log_irc is not None else True
         )
         # Set default paths for plugin and data files
-        self.plugin_folder = (
+        self._plugin_folder = (
             config.tama.plugin_folder if config.tama.plugin_folder else "plugins"
         )
-        self.data_folder = (
+        self._data_folder = (
             config.tama.data_folder if config.tama.data_folder else "data"
         )
         # Client bookkeeping
@@ -86,7 +86,7 @@ class TamaBot:
         # Load external plugins
         self.plugins.extend(
             loader.load_plugins(
-                path=self.plugin_folder,
+                path=self._plugin_folder,
                 bot=self,
                 config=config.tama.plugins
             )
@@ -120,6 +120,14 @@ class TamaBot:
             (ClosedEvent, self.on_closed),
             (UserQuitEvent, self.on_user_quit)
         ]
+
+    @property
+    def plugin_path(self) -> Path:
+        return Path(self._plugin_folder)
+
+    @property
+    def data_path(self) -> Path:
+        return Path(self._data_folder)
 
     def connect(self, client: IRCClient):
         self.clients.append(client)

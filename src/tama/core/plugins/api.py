@@ -92,7 +92,6 @@ def command(
     *aliases: str,
     auto_help: bool = True,
     permissions: list[str] = None,
-    blocking: bool = False,
 ):
     def decorator(f: Command.Executor):
         wrapper = _wrap_kwargs(f)
@@ -106,7 +105,6 @@ def command(
                 auto_help=auto_help,
                 docstring=f.__doc__.split("\n")[0].strip() if f.__doc__ is not None else None,
                 permissions=permissions,
-                blocking=blocking,
             ),
         )
         return wrapper

@@ -195,7 +195,7 @@ def basic_format(nick, text, data, **kwargs):
 
 
 def basic_attack(attack):
-    def func(text, client: api.Client = None, sender: api.User = None):
+    async def func(text, client: api.Client = None, sender: api.User = None):
         nick = sender.nick
         responses = {
             RespType.ACTION: client.action,

@@ -45,6 +45,7 @@ def say(
     text: str, channel: str,
     client: api.Client = None
 ) -> None:
+    """[<channel>] <text> - sends the given <text>, in <channel> if specified."""
     payload = text.strip()
     if payload.startswith("#"):
         channel, *msg = text.strip().split(" ", 1)
@@ -62,6 +63,7 @@ def act(
     text: str, channel: str,
     client: api.Client = None
 ) -> None:
+    """[<channel>] <text> - acts out the given <text>, in <channel> if specified."""
     payload = text.strip()
     if payload.startswith("#"):
         channel, *msg = text.strip().split(" ", 1)
@@ -77,6 +79,7 @@ def act(
 def message(
     text: str, client: api.Client = None
 ) -> None:
+    """<target> <text> - sends an IRC message to <target> with <text>."""
     target, *msg = text.strip().split(" ", 1)
     if len(msg) == 0:
         client.notice("Empty message")
@@ -87,19 +90,22 @@ def message(
 def notice(
     text: str, client: api.Client = None
 ) -> None:
+    """<target> <text> - sends an IRC notice to <target> with <text>."""
     target, *msg = text.strip().split(" ", 1)
     if len(msg) == 0:
         client.notice("Empty message")
     client.notice(msg[0], target)
 
 
-@api.command("quit", permissions=["bot_control"])
+@api.command("quit", permissions=["bot_control"], auto_help=False)
 def quit_(text: str, bot: api.Bot = None) -> None:
+    """shuts down the bot."""
     reason = text.strip()
     bot.shutdown(reason)
 
 
-@api.command(permissions=["bot_control"])
+@api.command(permissions=["bot_control"], auto_help=False)
 def reload(text: str, bot: api.Bot = None) -> None:
+    """reloads the bot."""
     reason = text.strip()
     bot.reload(reason)

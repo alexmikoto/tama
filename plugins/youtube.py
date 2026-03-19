@@ -212,7 +212,7 @@ def youtube_url(match: Match[str]) -> str | None:
         return None
 
 
-@api.command("youtube", "you", "yt", "y", blocking=True)
+@api.command("youtube", "you", "yt", "y")
 def youtube(text: str, client: api.Client = None) -> str:
     """<query> - Returns the first YouTube search result for <query>."""
     try:
@@ -225,7 +225,7 @@ def youtube(text: str, client: api.Client = None) -> str:
         raise
 
 
-@api.command("youtime", "ytime", blocking=True)
+@api.command("youtime", "ytime")
 def youtime(text: str, client: api.Client = None) -> str:
     """<query> - Gets the total run time of the first YouTube search result for <query>."""
     parts = ["statistics", "contentDetails", "snippet"]

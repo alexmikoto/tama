@@ -63,7 +63,7 @@ def approximate(count, n):
 
 
 @api.command("roll", "dice")
-def dice(text, client: api.Client = None):
+async def dice(text, client: api.Client = None):
     """<dice roll> - simulates dice rolls. Example: 'dice 2d20-d5+4 roll 2': D20s, subtract 1D5, add 4"""
     match = valid_diceroll.match(text)
     if not match:
@@ -122,7 +122,7 @@ def dice(text, client: api.Client = None):
 
 
 @api.command()
-def choose(text, client: api.Client = None):
+async def choose(text, client: api.Client = None):
     """<choice1>, [choice2], [choice3], etc. - randomly picks one of the given choices"""
     choices = re.findall(r"([^,]+)", text.strip())
     if len(choices) == 1:
@@ -135,7 +135,7 @@ def choose(text, client: api.Client = None):
 
 
 @api.command(auto_help=False)
-def coin(text, client: api.Client = None):
+async def coin(text, client: api.Client = None):
     """[amount] - flips [amount] coins"""
 
     if text:

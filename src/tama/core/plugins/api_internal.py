@@ -56,11 +56,10 @@ class Command(Action):
     executor: "Command.Executor | None"
     async_executor: "Command.AsyncExecutor | None"
     permissions: list[str] | None
-    blocking: bool
 
     __slots__ = (
         "name", "aliases", "auto_help", "docstring", "executor",
-        "async_executor", "permissions", "blocking",
+        "async_executor", "permissions"
     )
 
     class Executor(Protocol):
@@ -93,7 +92,6 @@ class Command(Action):
         auto_help: bool = True,
         docstring: str | None = None,
         permissions: list[str] | None = None,
-        blocking: bool = False,
     ):
         super().__init__(executor)
         self.name = name
@@ -101,13 +99,14 @@ class Command(Action):
         self.auto_help = auto_help
         self.docstring = docstring
         self.permissions = permissions
-        self.blocking = blocking
 
 
 class Regex(Action):
     pattern: re.Pattern
     executor: "Regex.Executor | None"
     async_executor: "Regex.AsyncExecutor | None"
+
+    __slots__ = ("pattern", "executor", "async_executor")
 
     class Executor(Protocol):
         def __call__(

@@ -371,12 +371,9 @@ class TamaBot:
             if r.is_async:
                 result = await r.async_executor(text, **exec_kwargs)
             else:
-                if r.blocking:
-                    result = await aio.get_running_loop().run_in_executor(
-                        None, functools.partial(r.executor, text, **exec_kwargs)
-                    )
-                else:
-                    result = r.executor(text, **exec_kwargs)
+                result = await aio.get_running_loop().run_in_executor(
+                    None, functools.partial(r.executor, text, **exec_kwargs)
+                )
 
             if result:
                 client_proxy.message(f"{evt.who.nick}, {result}")
@@ -388,7 +385,9 @@ class TamaBot:
                 if r.is_async:
                     result = await r.async_executor(match, **exec_kwargs)
                 else:
-                    result = r.executor(match, **exec_kwargs)
+                    result = await aio.get_running_loop().run_in_executor(
+                        None, functools.partial(r.executor, match, **exec_kwargs)
+                    )
 
                 if result:
                     client_proxy.message(f"{evt.who.nick}, {result}")

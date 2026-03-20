@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from tama.irc.client import IRCClient
 
 __all__ = [
+    "IRCEvent",
     "WelcomeBurstEvent",
     "BotModeChangeEvent", "ChannelModeChangeEvent",
     "NickChangeEvent",
@@ -21,32 +22,40 @@ __all__ = [
 
 
 @dataclass(frozen=True)
-class WelcomeBurstEvent(Event):
+class IRCEvent(Event):
+    """
+    Any event created by the IRC client.
+    """
+    client: "IRCClient"
+
+
+@dataclass(frozen=True)
+class WelcomeBurstEvent(IRCEvent):
     """
     IRC server welcome messages.
     """
-    client: "IRCClient"
     message: str
 
 
 @dataclass(frozen=True)
-class ModeChangeEvent(Event):
+class ModeChangeEvent(IRCEvent):
     """
     IRC modes changed for either a user or a channel.
     """
-    client: "IRCClient"
     who: IRCUser
     target: str
     mode: str
     args: tuple[str, ...]
 
 
+@dataclass(frozen=True)
 class BotModeChangeEvent(ModeChangeEvent):
     """
     Bot IRC modes changed.
     """
 
 
+@dataclass(frozen=True)
 class ChannelModeChangeEvent(ModeChangeEvent):
     """
     Channel IRC modes changed.
@@ -54,31 +63,28 @@ class ChannelModeChangeEvent(ModeChangeEvent):
 
 
 @dataclass(frozen=True)
-class NickChangeEvent(Event):
+class NickChangeEvent(IRCEvent):
     """
     A user changed IRC nickname.
     """
-    client: "IRCClient"
     who: IRCUser
     new_nick: str
 
 
 @dataclass(frozen=True)
-class InvitedEvent(Event):
+class InvitedEvent(IRCEvent):
     """
     Received an invite to an IRC channel.
     """
-    client: "IRCClient"
     who: IRCUser
     to: str
 
 
 @dataclass(frozen=True)
-class JoinedEvent(Event):
+class JoinedEvent(IRCEvent):
     """
     Someone joined an IRC channel.
     """
-    client: "IRCClient"
     channel: str
     who: IRCUser
 
@@ -102,11 +108,10 @@ class ChannelJoinedEvent(JoinedEvent):
 
 
 @dataclass(frozen=True)
-class PartedEvent(Event):
+class PartedEvent(IRCEvent):
     """
     Parted an IRC channel.
     """
-    client: "IRCClient"
     channel: str
     who: IRCUser
     message: str
@@ -127,11 +132,10 @@ class ChannelPartedEvent(PartedEvent):
 
 
 @dataclass(frozen=True)
-class KickedEvent(Event):
+class KickedEvent(IRCEvent):
     """
     Kicked from an IRC channel.
     """
-    client: "IRCClient"
     channel: str
     who: IRCUser
     target: str
@@ -153,52 +157,47 @@ class ChannelKickedEvent(KickedEvent):
 
 
 @dataclass(frozen=True)
-class MessagedEvent(Event):
+class MessagedEvent(IRCEvent):
     """
     Received an IRC message.
     """
-    client: "IRCClient"
     who: IRCUser
     where: str
     message: str
 
 
 @dataclass(frozen=True)
-class NoticedEvent(Event):
+class NoticedEvent(IRCEvent):
     """
     Received an IRC notice.
     """
-    client: "IRCClient"
     who: IRCUser
     where: str
     message: str
 
 
 @dataclass(frozen=True)
-class ActionEvent(Event):
+class ActionEvent(IRCEvent):
     """
     Received a CTCP action message.
     """
-    client: "IRCClient"
     who: IRCUser
     where: str
     message: str
 
 
 @dataclass(frozen=True)
-class ClosedEvent(Event):
+class ClosedEvent(IRCEvent):
     """
     IRC connection will be closed
     """
-    client: "IRCClient"
     message: str
 
 
 @dataclass(frozen=True)
-class UserQuitEvent(Event):
+class UserQuitEvent(IRCEvent):
     """
     Another user quit the IRC server.
     """
-    client: "IRCClient"
     who: IRCUser
     message: str

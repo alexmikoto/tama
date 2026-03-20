@@ -116,7 +116,23 @@ class TamaBot:
             (NoticedEvent, self.on_notice),
             (ActionEvent, self.on_action),
             (ClosedEvent, self.on_closed),
-            (UserQuitEvent, self.on_user_quit)
+            (UserQuitEvent, self.on_user_quit),
+            # Generic handler for plugins... this could be cleaner if the event
+            # bus dispatched the event to any subclass FIXME ig
+            (BotModeChangeEvent, self.on_any_event),
+            (ChannelModeChangeEvent, self.on_any_event),
+            (NickChangeEvent, self.on_any_event),
+            (InvitedEvent, self.on_any_event),
+            (BotJoinedEvent, self.on_any_event),
+            (ChannelJoinedEvent, self.on_any_event),
+            (BotPartedEvent, self.on_any_event),
+            (ChannelPartedEvent, self.on_any_event),
+            (BotKickedEvent, self.on_any_event),
+            (ChannelKickedEvent, self.on_any_event),
+            (MessagedEvent, self.on_any_event),
+            (NoticedEvent, self.on_any_event),
+            (ActionEvent, self.on_any_event),
+            (UserQuitEvent, self.on_any_event)
         ]
 
     @property
@@ -217,17 +233,6 @@ class TamaBot:
         for evt, handler in self.event_handlers:
             client.bus.unsubscribe(evt, handler)  # noqa
 
-    async def _dispatch_plugin_event(
-        self,
-        evt_t: type[Event],
-        evt: Event,
-        **kwargs: dict
-    ) -> None:
-        # Dispatch event subscribers
-        subs = self.act_event_subscribers.get(evt_t, [])
-        for s in subs:
-            await s.executor(evt, **kwargs)
-
     def _setup_client_raw_logger(self, client: IRCClient) -> None:
         if not self.log_raw:
             # Ignore client logger
@@ -304,6 +309,25 @@ class TamaBot:
             await aio.wait(pending, return_when=aio.ALL_COMPLETED)
 
         return self._exit_status
+
+    async def on_any_event(self, evt: IRCEvent) -> None:
+        evt_t = type(evt)
+
+        # Build API
+        client_proxy = ClientProxy(
+            client=evt.client,
+            bot=self,
+        )
+        exec_kwargs = dict(
+            bot=self,
+            client=client_proxy,
+            database=self.db,
+        )
+
+        # Dispatch event subscribers
+        subs = self.act_event_subscribers.get(evt_t, [])
+        for s in subs:
+            await s.executor(evt, **exec_kwargs)
 
     async def on_welcome_burst(self, evt: WelcomeBurstEvent) -> None:
         log = self._get_irc_logger(evt.client, evt.client.name)
@@ -417,9 +441,6 @@ class TamaBot:
             database=self.db,
         )
 
-        # Dispatch event subscribers
-        await self._dispatch_plugin_event(MessagedEvent, evt, **exec_kwargs)
-
         # Parse commands
         if evt.message.startswith(self.command_prefix):
             cmd, *text = evt.message.split(" ", 1)
@@ -503,15 +524,6 @@ class TamaBot:
             client=evt.client,
             bot=self,
             ctx=ClientContext(evt.where, evt.who.nick)
-        )
-
-        # Dispatch event subscribers
-        await self._dispatch_plugin_event(
-            ActionEvent,
-            evt,
-            bot=self,
-            client=client_proxy,
-            database=self.db,
         )
 
         # Act back at people

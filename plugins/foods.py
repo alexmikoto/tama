@@ -12,9 +12,8 @@ from collections import defaultdict
 from typing import Any
 
 from tama import api
+from tama.util.irc import is_valid_nick
 from tama.util.legacy import textgen
-
-irc_nick_re = re.compile(r"[A-Za-z0-9^{}\[\]\-`_|\\]+")
 
 
 class BasicFood:
@@ -23,10 +22,6 @@ class BasicFood:
         self.unit = unit
         self.commands = commands or (name,)
         self.file = file or f"{self.name}.json"
-
-
-def is_nick_valid(nick: str) -> bool:
-    return bool(irc_nick_re.fullmatch(nick))
 
 
 BASIC_FOOD = (
@@ -115,8 +110,8 @@ def basic_format(nick, text, data, **kwargs):
 
 
 def basic_food(food):
-    async def func(text, client: api.Client, sender: api.User):
-        if not is_nick_valid(text):
+    async def func(text: str, client: api.Client, sender: api.User):
+        if not is_valid_nick(text):
             return f"I can't give {food.unit} to that user."
 
         client.action(basic_format(sender.nick, text, basic_food_data[food.name]))

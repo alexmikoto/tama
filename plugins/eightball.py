@@ -19,9 +19,9 @@ def load_responses(bot: api.Bot) -> None:
 
 
 @api.command("8ball", "8", "eightball")
-async def eightball(text, client: api.Client) -> None:
-    """<question> - asks the all knowing magic electronic eight ball <question>"""
+async def eightball(action: api.Func) -> None:
+    """<question> - asks the all-knowing magic electronic eight-ball <question>"""
     magic = random.choice(responses)
     message = colors.parse(f"shakes the magic 8 ball... {magic}")
 
-    client.action(message)
+    action(message)

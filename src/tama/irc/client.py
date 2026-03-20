@@ -3,6 +3,7 @@ Handles the interpretation of parsed IRC messages and converts them to an
 observable event stream.
 """
 import asyncio as aio
+import dataclasses
 from collections import deque
 from time import time, ctime
 from logging import Logger, getLogger
@@ -171,19 +172,30 @@ class IRCClient:
         # Block if we have nothing to process
         if len(self._inbound_queue) == 0:
             try:
-                new_messages = await self.stream.read_messages()
+                resp = await self.stream.read_messages()
             except ConnectionError:
                 # Connection failed, shut down
                 self.logger.exception("IRC connection error")
                 self._shutting_down = True
                 return
             # Connection done, shut down
-            if new_messages is None:
+            if resp is None:
                 self.logger.info("IRC connection closed")
                 self._shutting_down = True
                 return
-            # Queue parsed messages
-            self._inbound_queue.extend(new_messages)
+            # Unpack messages and parsing errors
+            new_messages, errors = resp
+            # We might get an empty list of messages if we only got gibberish
+            if len(new_messages) > 0:
+                # Queue parsed messages
+                self._inbound_queue.extend(new_messages)
+
+            for err in errors:
+                self.logger.debug(">> %s (%s)", err, err.origin.decode("utf-8"))
+
+            if len(new_messages) == 0:
+                # Return here if we have nothing to process
+                return
 
         try:
             msg = self._inbound_queue.popleft()
@@ -194,10 +206,10 @@ class IRCClient:
                 self,
                 "handle_server_" + msg.command.lower(),
                 self.handle_server_default,
-                )
+            )
             srv_handler(msg)
         except IndexError:
-            self.logger.exception("Inbound called with an empty queue")
+            self.logger.exception("Inbound queue is empty")
 
     async def _outbound(self) -> None:
         # Block until we have a new message to send
@@ -480,18 +492,26 @@ class IRCClient:
     def handle_server_rpl_topic(self, msg: IRCMessage) -> None:
         _, channel, topic = msg.params
         if channel in self._joining_state:
-            self._joining_state[channel].topic = topic
+            self._joining_state[channel] = dataclasses.replace(
+                self._joining_state[channel], topic=topic
+            )
 
     def handle_server_rpl_topicwhotime(self, msg: IRCMessage) -> None:
         _, channel, nick, at = msg.params
         if channel in self._joining_state:
-            self._joining_state[channel].topic_by = nick
-            self._joining_state[channel].topic_at = ctime(int(at))
+            self._joining_state[channel] = dataclasses.replace(
+                self._joining_state[channel],
+                topic_by=nick,
+                topic_at=ctime(int(at)),
+            )
 
     def handle_server_rpl_namreply(self, msg: IRCMessage) -> None:
         _, symbol, channel, users = msg.params
         if channel in self._joining_state:
-            self._joining_state[channel].userlist += tuple(users.split(" "))
+            self._joining_state[channel] = dataclasses.replace(
+                self._joining_state[channel],
+                userlist=self._joining_state[channel].userlist + tuple(users.split(" ")),
+            )
 
     def handle_server_rpl_endofnames(self, msg: IRCMessage) -> None:
         _, channel, trailing = msg.params

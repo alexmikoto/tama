@@ -20,7 +20,7 @@ __all__ = [
 ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class WelcomeBurstEvent(Event):
     """
     IRC server welcome messages.
@@ -29,7 +29,7 @@ class WelcomeBurstEvent(Event):
     message: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class ModeChangeEvent(Event):
     """
     IRC modes changed for either a user or a channel.
@@ -53,7 +53,7 @@ class ChannelModeChangeEvent(ModeChangeEvent):
     """
 
 
-@dataclass
+@dataclass(frozen=True)
 class NickChangeEvent(Event):
     """
     A user changed IRC nickname.
@@ -63,7 +63,7 @@ class NickChangeEvent(Event):
     new_nick: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class InvitedEvent(Event):
     """
     Received an invite to an IRC channel.
@@ -73,7 +73,7 @@ class InvitedEvent(Event):
     to: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class JoinedEvent(Event):
     """
     Someone joined an IRC channel.
@@ -83,7 +83,7 @@ class JoinedEvent(Event):
     who: IRCUser
 
 
-@dataclass
+@dataclass(frozen=True)
 class BotJoinedEvent(JoinedEvent):
     """
     Bot joined an IRC channel.
@@ -94,14 +94,14 @@ class BotJoinedEvent(JoinedEvent):
     userlist: tuple[str, ...]
 
 
-@dataclass
+@dataclass(frozen=True)
 class ChannelJoinedEvent(JoinedEvent):
     """
     Another nickname joined an active IRC channel.
     """
 
 
-@dataclass
+@dataclass(frozen=True)
 class PartedEvent(Event):
     """
     Parted an IRC channel.
@@ -112,21 +112,21 @@ class PartedEvent(Event):
     message: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class BotPartedEvent(PartedEvent):
     """
     Bot parted an IRC channel.
     """
 
 
-@dataclass
+@dataclass(frozen=True)
 class ChannelPartedEvent(PartedEvent):
     """
     Another nickname parted an active IRC channel.
     """
 
 
-@dataclass
+@dataclass(frozen=True)
 class KickedEvent(Event):
     """
     Kicked from an IRC channel.
@@ -138,21 +138,21 @@ class KickedEvent(Event):
     message: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class BotKickedEvent(KickedEvent):
     """
     Bot was kicked from IRC channel.
     """
 
 
-@dataclass
+@dataclass(frozen=True)
 class ChannelKickedEvent(KickedEvent):
     """
     Another nickname was kicked from an active IRC channel.
     """
 
 
-@dataclass
+@dataclass(frozen=True)
 class MessagedEvent(Event):
     """
     Received an IRC message.
@@ -163,7 +163,7 @@ class MessagedEvent(Event):
     message: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class NoticedEvent(Event):
     """
     Received an IRC notice.
@@ -174,7 +174,7 @@ class NoticedEvent(Event):
     message: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class ActionEvent(Event):
     """
     Received a CTCP action message.
@@ -185,7 +185,7 @@ class ActionEvent(Event):
     message: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class ClosedEvent(Event):
     """
     IRC connection will be closed
@@ -194,7 +194,7 @@ class ClosedEvent(Event):
     message: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class UserQuitEvent(Event):
     """
     Another user quit the IRC server.

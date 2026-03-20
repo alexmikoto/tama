@@ -8,19 +8,31 @@ import re
 import traceback
 import os.path
 from collections.abc import Callable
+from typing import Any
 
 from .api_internal import *
 
 # Load symbols to present them for plugin modules
+from tama.event import Event
 from tama.core.bot import TamaBot
+from tama.core.db import TamaDB
 from tama.core.client_proxy import ClientProxy
 from tama.irc.user import IRCUser
 
-__all__ = ["Bot", "Client", "User", "on_load", "command", "regex"]
+__all__ = ["Bot", "Client", "User", "DB", "Func", "on_load", "command", "regex"]
 
 Bot = TamaBot
 Client = ClientProxy
 User = IRCUser
+DB = TamaDB
+
+Func = Callable[[str], None]
+
+convenience = dict(
+    reply=("client", "message"),
+    action=("client", "action"),
+    notice=("client", "notice"),
+)
 
 
 def _log_exception(exc: Exception):
@@ -33,26 +45,50 @@ def _log_exception(exc: Exception):
     )
 
 
+def _add_convenience(kwargs: dict[str, Any]) -> dict[str, Any]:
+    to_add = {}
+    for name, value in convenience.items():
+        owner, path = value
+        f = getattr(kwargs.get(owner, {}), path)
+        to_add[name] = f
+    return {**kwargs, **to_add}
+
+
 def _wrap_kwargs(f: Callable) -> Callable:
     sig = inspect.signature(f)
 
     if inspect.iscoroutinefunction(f):
         @functools.wraps(f)
         async def wrapper(*args, **kwargs) -> str | None:
+            kwargs = _add_convenience(kwargs)
             w_kwargs = {
                 k: v for k, v in kwargs.items() if k in sig.parameters.keys()
             }
+            db: TamaDB | None = None
+            conn: TamaDB.Conn | None = None
             try:
+                # Add "db" handler to hide the transaction logic from plugins
+                if "db" in sig.parameters:
+                    db = kwargs["database"]
+                    conn = await db.connect()
+                    w_kwargs["db"] = conn
                 return await f(*args, **w_kwargs)
             except Exception as exc:
                 _log_exception(exc)
                 # Swallow the exception after printing
                 return "Error!"
+            finally:
+                if conn is not None:
+                    await conn.close()
         return wrapper
 
     else:
+        if "db" in sig.parameters:
+            raise TypeError("DB client functions must be async")
+
         @functools.wraps(f)
         def wrapper(*args, **kwargs) -> str | None:
+            kwargs = _add_convenience(kwargs)
             w_kwargs = {
                 k: v for k, v in kwargs.items() if k in sig.parameters.keys()
             }
@@ -80,8 +116,29 @@ def on_load():
 
         setattr(
             wrapper,
-            "_tama_action",
+            magic_attr,
             OnLoad(wrapper),
+        )
+        return wrapper
+    return decorator
+
+
+def event(events: list[type[Event]]):
+    def decorator(f: EventSubscriber.Executor):
+        wrapper = _wrap_kwargs(f)
+        # Force all listeners to be async
+        if not inspect.iscoroutinefunction(wrapper):
+            async def async_wrapper(*args, **kwargs) -> None:
+                return wrapper(*args, **kwargs)
+            wrapper = async_wrapper
+
+        setattr(
+            wrapper,
+            magic_attr,
+            EventSubscriber(
+                executor=wrapper,
+                events=events
+            ),
         )
         return wrapper
     return decorator
@@ -97,7 +154,7 @@ def command(
         wrapper = _wrap_kwargs(f)
         setattr(
             wrapper,
-            "_tama_action",
+            magic_attr,
             Command(
                 executor=wrapper,
                 name=name or f.__name__,
@@ -116,7 +173,7 @@ def regex(pattern: str | re.Pattern):
         wrapper = _wrap_kwargs(f)
         setattr(
             wrapper,
-            "_tama_action",
+            magic_attr,
             Regex(executor=wrapper, pattern=pattern)
         )
         return wrapper

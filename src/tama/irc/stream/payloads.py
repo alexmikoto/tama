@@ -102,12 +102,12 @@ class IRCMessage:
             command = REPLY_CODES.get(command, None)
             if command is None:
                 # Unknown reply code
-                raise InvalidIRCCommandError(numeric)
+                raise InvalidIRCCommandError(msg, numeric)
         else:
             numeric = None
             if command not in COMMANDS:
                 # Bad command
-                raise InvalidIRCCommandError(command)
+                raise InvalidIRCCommandError(msg, command)
 
         # Check for CTCP encapsulation and parse messages
         ctcp = None
@@ -120,7 +120,7 @@ class IRCMessage:
             ctcp_cmd, *ctcp_trailing = ctcp_payload.split(" ", 1)
 
             if ctcp_cmd not in CTCP_COMMANDS:
-                raise InvalidCTCPCommandError(ctcp_cmd)
+                raise InvalidCTCPCommandError(msg, ctcp_cmd)
 
             # No need to parse CTCP message further as the only query with a
             # parameter list is DCC which is not supported.

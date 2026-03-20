@@ -9,6 +9,7 @@ import logging.handlers
 from pathlib import Path
 
 from tama.config import Config
+from tama.event import Event
 from tama.util.trie import Trie
 from tama.irc import IRCClient, IRCUser
 from tama.irc.event import *
@@ -20,12 +21,11 @@ import tama.core.plugins.loader as loader
 
 from .exit_status import ExitStatus
 from .client_proxy import *
+from .db import TamaDB
 from .acl import ACL
 from .exc import NameCollisionError
 
 __all__ = ["TamaBot"]
-
-from ..irc.event import ModeChangeEvent
 
 
 class TamaBot:
@@ -44,6 +44,7 @@ class TamaBot:
     # Registered actions
     act_commands: dict[str, Command]
     act_regex: list[Regex]
+    act_event_subscribers: dict[type[Event], list[EventSubscriber]]
 
     act_commands_idx: Trie
 
@@ -84,21 +85,18 @@ class TamaBot:
         # Load builtin plugins
         self.plugins = loader.load_builtins()
         # Load external plugins
-        self.plugins.extend(
-            loader.load_plugins(
-                path=self._plugin_folder,
-                bot=self,
-                config=config.tama.plugins
-            )
-        )
+        self.plugins.extend(loader.load_plugins(path=self._plugin_folder))
         # For registered actions
         self.act_commands = {}
         self.act_regex = []
+        self.act_event_subscribers = {}
         self.act_commands_idx = Trie()
         # Only set exit status when exiting
         self._exit_status = None
         # Register plugin actions
         self._setup_plugins()
+        # Load DB connection
+        self.db = TamaDB.create(self.config.tama.db)
         # Load ACL
         self.acl = ACL(config.tama.permissions)
         # Populate list of event observers
@@ -147,7 +145,31 @@ class TamaBot:
             self.connect(client)
             self._setup_client_raw_logger(client)
 
+    async def setup_db(self):
+        await self.db.create_all()
+
     def _setup_plugins(self):
+        # Run OnLoad actions upon initializing
+        load_errored = []
+        for plug in self.plugins:
+            for act in plug.actions:
+                if isinstance(act, OnLoad):
+                    plug_name = plug.module_name.split(".")[-1]
+                    plug_config = self.config.tama.plugins.get(plug_name, {})
+                    try:
+                        plug.on_load(bot=self, config=plug_config)
+                    except Exception:  # noqa
+                        logging.getLogger(__name__).exception(
+                            f"Error while initializing plugin {plug_name}:"
+                        )
+                        load_errored.append(plug)
+
+        # Drop plugins that had loading error as they are in an undetermined
+        # state
+        for p in load_errored:
+            self.plugins.remove(p)
+
+        # Find command/regex handlers
         for plug in self.plugins:
             for act in plug.actions:
                 if isinstance(act, Command):
@@ -162,6 +184,12 @@ class TamaBot:
                     self.act_commands_idx.add(act.name)
                 elif isinstance(act, Regex):
                     self.act_regex.append(act)
+                elif isinstance(act, EventSubscriber):
+                    for evt in act.events:
+                        if evt not in self.act_event_subscribers:
+                            self.act_event_subscribers[evt] = [act]
+                        else:
+                            self.act_event_subscribers[evt].append(act)
 
         # Register aliases AFTER loading all commands, if there is any collision
         # drop a warning but do not raise the exception
@@ -188,6 +216,17 @@ class TamaBot:
     def _unsubscribe_client_events(self, client: IRCClient) -> None:
         for evt, handler in self.event_handlers:
             client.bus.unsubscribe(evt, handler)  # noqa
+
+    async def _dispatch_plugin_event(
+        self,
+        evt_t: type[Event],
+        evt: Event,
+        **kwargs: dict
+    ) -> None:
+        # Dispatch event subscribers
+        subs = self.act_event_subscribers.get(evt_t, [])
+        for s in subs:
+            await s.executor(evt, **kwargs)
 
     def _setup_client_raw_logger(self, client: IRCClient) -> None:
         if not self.log_raw:
@@ -374,8 +413,12 @@ class TamaBot:
             channel=evt.where,
             sender=evt.who,
             bot=self,
-            client=client_proxy
+            client=client_proxy,
+            database=self.db,
         )
+
+        # Dispatch event subscribers
+        await self._dispatch_plugin_event(MessagedEvent, evt, **exec_kwargs)
 
         # Parse commands
         if evt.message.startswith(self.command_prefix):
@@ -421,11 +464,14 @@ class TamaBot:
                     return
 
             if r.is_async:
-                result = await r.async_executor(text.strip(), **exec_kwargs)
+                result = await r.executor(text=text.strip(), **exec_kwargs)
             else:
                 result = await aio.get_running_loop().run_in_executor(
-                    None, functools.partial(r.executor, text.strip(), **exec_kwargs)
-                )
+                    None,
+                    functools.partial(
+                        r.executor, text=text.strip(), **exec_kwargs
+                    )
+                )  # noqa
 
             if result:
                 client_proxy.message(f"{evt.who.nick}, {result}")
@@ -435,11 +481,14 @@ class TamaBot:
             match = re.search(r.pattern, evt.message)
             if match:
                 if r.is_async:
-                    result = await r.async_executor(match, **exec_kwargs)
+                    result = await r.executor(match=match, **exec_kwargs)
                 else:
                     result = await aio.get_running_loop().run_in_executor(
-                        None, functools.partial(r.executor, match, **exec_kwargs)
-                    )
+                        None,
+                        functools.partial(
+                            r.executor, match=match, **exec_kwargs
+                        )
+                    )  # noqa
 
                 if result:
                     client_proxy.message(f"{evt.who.nick}, {result}")
@@ -454,6 +503,15 @@ class TamaBot:
             client=evt.client,
             bot=self,
             ctx=ClientContext(evt.where, evt.who.nick)
+        )
+
+        # Dispatch event subscribers
+        await self._dispatch_plugin_event(
+            ActionEvent,
+            evt,
+            bot=self,
+            client=client_proxy,
+            database=self.db,
         )
 
         # Act back at people

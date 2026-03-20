@@ -19,18 +19,18 @@ def load(bot: api.Bot = None):
 
 
 @api.command("cunt", "cunnt", auto_help=False)
-async def cunt(text: str):
+async def cunt():
     """- hands out a OFFENSIVE word m8"""
     return random.choice(off_words)
 
 
 @api.command(auto_help=False)
-async def cunny(text: str, client: api.Client = None, sender: api.User = None):
+async def cunny(sender: api.User, action: api.Func):
     """- STOP """
-    client.action(f"arrests {sender.nick}")
+    action(f"arrests {sender.nick}")
 
 
 @api.command(auto_help=False)
-async def theo(text: str):
+async def theo():
     """- hands out theo's wisdom"""
     return random.choice(theo_wisdom)

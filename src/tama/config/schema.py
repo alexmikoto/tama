@@ -36,6 +36,7 @@ class TamaConfig:
     log_irc: bool | None
     plugin_folder: str | None
     data_folder: str | None
+    db: dict | None
     permissions: dict[str, PermissionGroupConfig] | None
     plugins: dict[str, dict] | None
 

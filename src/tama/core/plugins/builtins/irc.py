@@ -1,5 +1,5 @@
 from tama import api
-from string import ascii_letters, digits
+from tama.util.irc import is_valid_nick
 
 __all__ = ["nick", "join", "part", "say", "act", "message","quit_", "reload"]
 
@@ -16,13 +16,8 @@ async def nick(
     if len(other) > 0:
         client.notice("Invalid nickname")
         return
-    # Leading character has different rules, see: RFC2812
-    if new_nick[0] not in ascii_letters + special:
-        client.notice("Invalid nickname")
-        return
-    # Also see: RFC2812
-    allowed_chars = ascii_letters + digits + special + "-"
-    if any(c not in allowed_chars for c in new_nick[1:]):
+    # Check if nick is compliant with expected rules
+    if not is_valid_nick(new_nick):
         client.notice("Invalid nickname")
         return
     client.notice(f"Attempting to change nickname to {new_nick}")

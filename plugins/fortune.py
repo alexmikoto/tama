@@ -90,7 +90,7 @@ def get_fortune_from_file(file: FortuneFile) -> str:
 
 
 @api.command(auto_help=False)
-async def fortune(_, client: api.Client = None) -> None:
+async def fortune(client: api.Client = None) -> None:
     cookie = get_fortune()
     for line in cookie.split("\n"):
         if line:
@@ -98,7 +98,7 @@ async def fortune(_, client: api.Client = None) -> None:
 
 
 @api.command(auto_help=False)
-async def book(_, client: api.Client = None) -> None:
+async def book(client: api.Client = None) -> None:
     cookie = get_fortune_from_file(
         next(f for f in fortunes if f.name == "literature")
     )

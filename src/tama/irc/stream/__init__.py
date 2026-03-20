@@ -23,8 +23,8 @@ See also: https://tools.ietf.org/html/rfc1459
 import asyncio as aio
 import ssl
 from logging import getLogger
-from typing import List, Optional
 
+from tama.irc.exc import ParseError
 from tama.irc.stream.payloads import IRCMessage
 
 __all__ = ["IRCStream", "IRCMessage"]
@@ -58,7 +58,7 @@ class IRCStream:
         reader, writer = await aio.open_connection(host, port, ssl=ssl_ctx)
         return cls(reader, writer)
 
-    async def read_messages(self) -> Optional[List[IRCMessage]]:
+    async def read_messages(self) -> tuple[list[IRCMessage], list[ParseError]] | None:
         """
         Reads a batch of IRC messages from the inbound TCP stream. A list of
         parsed messages will be returned, unless the connection is closed and
@@ -67,6 +67,7 @@ class IRCStream:
         :return: List of IRC messages or None.
         """
         messages = []
+        errors = []
         data = await self.reader.read(1024)
 
         if len(data) == 0:
@@ -76,24 +77,30 @@ class IRCStream:
         if (lim := data.find(b"\r\n")) == -1:
             # If there is no delimiter assume the message is incomplete
             self.buffer.extend(data)
-            return messages
+            return messages, errors
 
         # Get buffered message
         if len(self.buffer) > 0:
             msg, data = self.buffer + data[: lim], data[lim + 2:]
-            messages.append(IRCMessage.parse(msg, encoding=self.encoding))
+            try:
+                messages.append(IRCMessage.parse(msg, encoding=self.encoding))
+            except ParseError as e:
+                errors.append(e)
             self.buffer.clear()
 
         # Get all other messages
         while (lim := data.find(b"\r\n")) != -1:
             msg, data = data[: lim], data[lim + 2:]
-            messages.append(IRCMessage.parse(msg, encoding=self.encoding))
+            try:
+                messages.append(IRCMessage.parse(msg, encoding=self.encoding))
+            except ParseError as e:
+                errors.append(e)
 
         # Buffer remaining data for next read
         if len(data) > 0:
             self.buffer = bytearray(data)
 
-        return messages
+        return messages, errors
 
     async def send_message(self, msg: IRCMessage) -> None:
         self.writer.write(msg.raw)

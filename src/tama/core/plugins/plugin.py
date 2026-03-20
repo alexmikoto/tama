@@ -1,11 +1,7 @@
 import weakref
 from types import ModuleType, FunctionType
-from typing import TYPE_CHECKING
 
 from tama.core.plugins.api_internal import *
-
-if TYPE_CHECKING:
-    from tama.core.bot import TamaBot
 
 __all__ = ["Plugin"]
 
@@ -34,7 +30,7 @@ class Plugin:
         # Check for actions registered
         for pa in potential_actions:
             pa_f = getattr(self.module, pa)
-            info: Action | None = getattr(pa_f, "_tama_action", None)
+            info: Action | None = getattr(pa_f, magic_attr, None)
             if not info:
                 continue
             if isinstance(info, Action):

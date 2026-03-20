@@ -17,6 +17,7 @@ async def main():
         logging.config.dictConfig(cfg.logging)
 
     bot = TamaBot(cfg)
+    await bot.setup_db()
     await bot.create_clients_from_config()
 
     # Graceful shutdown handlers

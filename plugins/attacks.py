@@ -15,9 +15,8 @@ from enum import Enum, unique
 from typing import Any
 
 from tama import api
+from tama.util.irc import is_valid_nick
 from tama.util.legacy import textgen
-
-irc_nick_re = re.compile(r"[A-Za-z0-9^{}\[\]\-`_|\\]+")
 
 
 @unique
@@ -25,10 +24,6 @@ class RespType(Enum):
     ACTION = 1
     MESSAGE = 2
     REPLY = 3
-
-
-def is_nick_valid(nick: str) -> bool:
-    return bool(irc_nick_re.fullmatch(nick))
 
 
 def is_self(client: api.Client, target):
@@ -195,7 +190,7 @@ def basic_format(nick, text, data, **kwargs):
 
 
 def basic_attack(attack):
-    async def func(text, client: api.Client = None, sender: api.User = None):
+    async def func(text: str, sender: api.User, client: api.Client):
         nick = sender.nick
         responses = {
             RespType.ACTION: client.action,
@@ -205,7 +200,7 @@ def basic_attack(attack):
 
         target = text
         if target:
-            if not is_nick_valid(target):
+            if not is_valid_nick(target):
                 return f"I can't {attack.action} that."
 
             if is_self(client, target):

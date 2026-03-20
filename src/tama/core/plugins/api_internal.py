@@ -4,19 +4,26 @@ Defines the plugin API internals.
 import re
 import inspect
 from collections.abc import Callable
-from typing import Any, Protocol, TYPE_CHECKING
+from typing import Any, Protocol, Awaitable, TYPE_CHECKING
+
+from tama.event import Event
 
 if TYPE_CHECKING:
     from tama.core.bot import TamaBot
+    from tama.core.db import TamaDB
     from tama.core.plugins.plugin import Plugin
 
-__all__ = ["Action", "OnLoad", "Command", "Regex"]
+__all__ = [
+    "magic_attr", "Action", "OnLoad", "EventSubscriber", "Command", "Regex"
+]
+
+# Attribute name to recognize metadata blocks in decorators
+magic_attr = "_tama_action"
 
 
 class Action:
     is_async: bool
     executor: Any | None
-    async_executor: Any | None
 
     # This is a weak reference
     parent_plugin: Callable[[], "Plugin"] | None
@@ -24,12 +31,9 @@ class Action:
     def __init__(self, executor: Any):
         if inspect.iscoroutinefunction(executor):
             self.is_async = True
-            self.executor = None
-            self.async_executor = executor
         else:
             self.is_async = False
-            self.executor = executor
-            self.async_executor = None
+        self.executor = executor
 
 
 class OnLoad(Action):
@@ -43,9 +47,31 @@ class OnLoad(Action):
 
     def __init__(
         self,
-        executor: "Loader.Executor",
+        executor: "OnLoad.Executor",
     ):
         super().__init__(executor)
+
+
+class EventSubscriber(Action):
+    events: list[type[Event]]
+
+    class Executor(Protocol):
+        def __call__(
+            self,
+            *,
+            event: Event = None,
+            bot: "TamaBot" = None,
+            client: "TamaBot.Client" = None,
+            database: "TamaDB" = None,
+        ) -> None: ...
+
+    def __init__(
+        self,
+        executor: "EventSubscriber.Executor",
+        events: list[type[Event]],
+    ):
+        super().__init__(executor)
+        self.events = events
 
 
 class Command(Action):
@@ -54,7 +80,6 @@ class Command(Action):
     auto_help: bool
     docstring: str | None
     executor: "Command.Executor | None"
-    async_executor: "Command.AsyncExecutor | None"
     permissions: list[str] | None
 
     __slots__ = (
@@ -65,28 +90,24 @@ class Command(Action):
     class Executor(Protocol):
         def __call__(
             self,
-            text: str,
             *,
+            # Caller-provided parameters
+            text: str = None,
             channel: str = None,
             sender: "TamaBot.User" = None,
             bot: "TamaBot" = None,
             client: "TamaBot.Client" = None,
-        ) -> str | None: ...
-
-    class AsyncExecutor(Protocol):
-        async def __call__(
-            self,
-            text: str,
-            *,
-            channel: str = None,
-            sender: "TamaBot.User" = None,
-            bot: "TamaBot" = None,
-            client: "TamaBot.Client" = None,
-        ) -> str | None: ...
+            database: "TamaDB" = None,
+            # Convenience methods
+            reply: "Callable[[str], None]" = None,
+            action: "Callable[[str], None]" = None,
+            notice: "Callable[[str], None]" = None,
+            db: "TamaDB.Conn" = None,
+        ) -> str | Awaitable[str] | None: ...
 
     def __init__(
         self,
-        executor: "Command.Executor | Command.AsyncExecutor",
+        executor: "Command.Executor",
         name: str,
         aliases: list[str] | None = None,
         auto_help: bool = True,
@@ -104,35 +125,30 @@ class Command(Action):
 class Regex(Action):
     pattern: re.Pattern
     executor: "Regex.Executor | None"
-    async_executor: "Regex.AsyncExecutor | None"
 
     __slots__ = ("pattern", "executor", "async_executor")
 
     class Executor(Protocol):
         def __call__(
             self,
-            match: re.Match,
             *,
+            # Caller-provided parameters
+            match: re.Match = None,
             channel: str = None,
             sender: "TamaBot.User" = None,
             bot: "TamaBot" = None,
             client: "TamaBot.Client" = None,
-        ) -> str | None: ...
-
-    class AsyncExecutor(Protocol):
-        async def __call__(
-            self,
-            match: re.Match,
-            *,
-            channel: str = None,
-            sender: "TamaBot.User" = None,
-            bot: "TamaBot" = None,
-            client: "TamaBot.Client" = None,
-        ) -> str | None: ...
+            database: "TamaDB" = None,
+            # Convenience methods
+            reply: "Callable[[str], None]" = None,
+            action: "Callable[[str], None]" = None,
+            notice: "Callable[[str], None]" = None,
+            db: "TamaDB.Conn" = None,
+        ) -> str | Awaitable[str] | None: ...
 
     def __init__(
         self,
-        executor: "Regex.Executor | Regex.AsyncExecutor",
+        executor: "Regex.Executor",
         pattern: str | re.Pattern,
     ):
         super().__init__(executor)

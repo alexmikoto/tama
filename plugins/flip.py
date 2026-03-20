@@ -91,10 +91,10 @@ table_flipper = "\u253b\u2501\u253b \ufe35\u30fd(`\u0414\xb4)\uff89\ufe35 \u253b
 
 
 @api.command()
-async def flip(text, channel: str = None, client: api.Client = None) -> None:
+async def flip(text: str, channel: str, reply) -> None:
     """<text> - Flips <text> over."""
     if text in ["table", "tables"]:
-        client.message(
+        reply(
             random.choice(
                 [
                     f"{random.choice(flippers)}{FLIP_CHAR}\u253b\u2501\u253b",
@@ -105,12 +105,12 @@ async def flip(text, channel: str = None, client: api.Client = None) -> None:
         table_status[channel] = True
     elif text == "5318008":
         out = "BOOBIES"
-        client.message(random.choice(flippers) + FLIP_CHAR + out)
+        reply(random.choice(flippers) + FLIP_CHAR + out)
     elif text == "BOOBIES":
         out = "5318008"
-        client.message(random.choice(flippers) + FLIP_CHAR + out)
+        reply(random.choice(flippers) + FLIP_CHAR + out)
     else:
-        client.message(
+        reply(
             random.choice(flippers)
             + FLIP_CHAR
             + formatting.multi_replace(text[::-1], replacements)
@@ -118,9 +118,9 @@ async def flip(text, channel: str = None, client: api.Client = None) -> None:
 
 
 @api.command()
-async def table(text, client: api.Client = None) -> None:
+async def table(text: str, reply) -> None:
     """<text> - Flip text"""
-    client.message(
+    reply(
         random.choice(flippers)
         + FLIP_CHAR
         + formatting.multi_replace(text[::-1].lower(), replacements)
@@ -128,14 +128,14 @@ async def table(text, client: api.Client = None) -> None:
 
 
 @api.command()
-async def fix(text, channel: str = None, client: api.Client = None) -> None:
+async def fix(text: str, channel: str, reply) -> None:
     """<text> - fixes a flipped over table."""
     if text in ["table", "tables"]:
         if table_status.pop(channel, False):
-            client.message(FIXED_TABLE)
+            reply(FIXED_TABLE)
         else:
-            client.message(
+            reply(
                 f"no tables have been turned over in {channel}, thanks for checking!"
             )
     else:
-        await flip(text, channel, client)
+        await flip(text, channel, reply)

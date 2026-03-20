@@ -42,6 +42,17 @@ log_raw = true
 # If true, server messages will be logged in their parsed state.
 log_irc = true
 
+    # This section is passed directly to SQLAlchemy create_async_engine
+    # See: https://docs.sqlalchemy.org/en/21/orm/extensions/asyncio.html#sqlalchemy.ext.asyncio.create_async_engine
+    [tama.db]
+    url = "sqlite+aiosqlite:///tama.db"
+
+    # Configures the ACL module for permission control
+    # Please EDIT this and do not leave defaults
+    [tama.permissions.admin]
+    perms = ["bot_control"]
+    users = ["nick!user@host"]
+
 # This config is passed directly to python's logging module.
 # See: https://docs.python.org/3/library/logging.config.html
 # If not set, dictConfig() will never be called as there are no project

@@ -7,8 +7,9 @@ import logging
 import re
 import traceback
 import os.path
+import asyncio as aio
 from collections.abc import Callable
-from typing import Any
+from typing import Any, TypeVar
 
 from .api_internal import *
 
@@ -19,7 +20,12 @@ from tama.core.db import TamaDB
 from tama.core.client_proxy import ClientProxy
 from tama.irc.user import IRCUser
 
-__all__ = ["Bot", "Client", "User", "DB", "Func", "on_load", "command", "regex"]
+__all__ = [
+    "Bot", "Client", "User", "DB", "Func",
+    "on_load", "on_connect",
+    "event", "command", "regex",
+    "run_sync_function", "sleep",
+]
 
 Bot = TamaBot
 Client = ClientProxy
@@ -54,31 +60,40 @@ def _add_convenience(kwargs: dict[str, Any]) -> dict[str, Any]:
     return {**kwargs, **to_add}
 
 
-def _wrap_kwargs(f: Callable) -> Callable:
+def _wrap_kwargs(
+    f: Callable,
+    inject_db: bool = True,
+    inject_convenience: bool = True,
+    catch_all: bool = True,
+) -> Callable:
     sig = inspect.signature(f)
 
     if inspect.iscoroutinefunction(f):
         @functools.wraps(f)
         async def wrapper(*args, **kwargs) -> str | None:
-            kwargs = _add_convenience(kwargs)
+            if inject_convenience:
+                kwargs = _add_convenience(kwargs)
             w_kwargs = {
                 k: v for k, v in kwargs.items() if k in sig.parameters.keys()
             }
-            db: TamaDB | None = None
+            # Only used if connecting to DB
             conn: TamaDB.Conn | None = None
             try:
                 # Add "db" handler to hide the transaction logic from plugins
-                if "db" in sig.parameters:
-                    db = kwargs["database"]
+                if inject_db and "db" in sig.parameters:
+                    db: TamaDB = kwargs["database"]
                     conn = await db.connect()
                     w_kwargs["db"] = conn
                 return await f(*args, **w_kwargs)
             except Exception as exc:
                 _log_exception(exc)
                 # Swallow the exception after printing
-                return "Error!"
+                if catch_all:
+                    return "Error!"
+                else:
+                    raise exc
             finally:
-                if conn is not None:
+                if inject_db and conn is not None:
                     await conn.close()
         return wrapper
 
@@ -88,7 +103,8 @@ def _wrap_kwargs(f: Callable) -> Callable:
 
         @functools.wraps(f)
         def wrapper(*args, **kwargs) -> str | None:
-            kwargs = _add_convenience(kwargs)
+            if inject_convenience:
+                kwargs = _add_convenience(kwargs)
             w_kwargs = {
                 k: v for k, v in kwargs.items() if k in sig.parameters.keys()
             }
@@ -97,23 +113,16 @@ def _wrap_kwargs(f: Callable) -> Callable:
             except Exception as exc:
                 _log_exception(exc)
                 # Swallow the exception after printing
-                return "Error!"
+                if catch_all:
+                    return "Error!"
+                else:
+                    raise exc
         return wrapper
 
 
 def on_load():
     def decorator(f: OnLoad.Executor):
-        sig = inspect.signature(f)
-
-        # No exception wrapper as these should be propagated to inform the bot
-        # the plugin load failed
-        @functools.wraps(f)
-        def wrapper(*args, **kwargs) -> str | None:
-            w_kwargs = {
-                k: v for k, v in kwargs.items() if k in sig.parameters.keys()
-            }
-            return f(*args, **w_kwargs)
-
+        wrapper = _wrap_kwargs(f, inject_db=False, inject_convenience=False, catch_all=False)
         setattr(
             wrapper,
             magic_attr,
@@ -123,8 +132,20 @@ def on_load():
     return decorator
 
 
+def on_connect():
+    def decorator(f: OnLoad.Executor):
+        wrapper = _wrap_kwargs(f, inject_convenience=False, catch_all=False)
+        setattr(
+            wrapper,
+            magic_attr,
+            OnConnect(wrapper),
+        )
+        return wrapper
+    return decorator
+
+
 def event(events: list[type[Event]]):
-    def decorator(f: EventSubscriber.Executor):
+    def decorator(f: OnEvent.Executor):
         wrapper = _wrap_kwargs(f)
         # Force all listeners to be async
         if not inspect.iscoroutinefunction(wrapper):
@@ -135,7 +156,7 @@ def event(events: list[type[Event]]):
         setattr(
             wrapper,
             magic_attr,
-            EventSubscriber(
+            OnEvent(
                 executor=wrapper,
                 events=events
             ),
@@ -178,3 +199,14 @@ def regex(pattern: str | re.Pattern):
         )
         return wrapper
     return decorator
+
+
+T = TypeVar("T")
+
+async def run_sync_function(func: Callable[..., T], *args, **kwargs) -> T:
+    skel = functools.partial(func, *args, **kwargs)
+    res = await aio.get_running_loop().run_in_executor(None, skel)
+    return res
+
+
+sleep = aio.sleep

@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from tama.core.plugins.plugin import Plugin
 
 __all__ = [
-    "magic_attr", "Action", "OnLoad", "EventSubscriber", "Command", "Regex"
+    "magic_attr", "Action", "OnLoad", "OnConnect", "OnEvent", "Command", "Regex"
 ]
 
 # Attribute name to recognize metadata blocks in decorators
@@ -52,7 +52,27 @@ class OnLoad(Action):
         super().__init__(executor)
 
 
-class EventSubscriber(Action):
+class OnConnect(Action):
+    class Executor(Protocol):
+        def __call__(
+            self,
+            *,
+            config: dict = None,
+            bot: "TamaBot" = None,
+            client: "TamaBot.Client" = None,
+            database: "TamaDB" = None,
+            # Convenience methods
+            db: "TamaDB.Conn" = None,
+        ) -> None: ...
+
+    def __init__(
+        self,
+        executor: "OnConnect.Executor",
+    ):
+        super().__init__(executor)
+
+
+class OnEvent(Action):
     events: list[type[Event]]
 
     class Executor(Protocol):
@@ -67,7 +87,7 @@ class EventSubscriber(Action):
 
     def __init__(
         self,
-        executor: "EventSubscriber.Executor",
+        executor: "OnEvent.Executor",
         events: list[type[Event]],
     ):
         super().__init__(executor)
@@ -93,6 +113,7 @@ class Command(Action):
             *,
             # Caller-provided parameters
             text: str = None,
+            origin: str = None,
             channel: str = None,
             sender: "TamaBot.User" = None,
             bot: "TamaBot" = None,
@@ -134,6 +155,7 @@ class Regex(Action):
             *,
             # Caller-provided parameters
             match: re.Match = None,
+            origin: str = None,
             channel: str = None,
             sender: "TamaBot.User" = None,
             bot: "TamaBot" = None,

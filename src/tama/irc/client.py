@@ -74,7 +74,7 @@ class IRCClient:
 
         self.stream = stream
         self.bus = EventBus(accept=[
-            WelcomeBurstEvent,
+            WelcomeBurstEvent, ConnectedEvent,
             BotModeChangeEvent, ChannelModeChangeEvent,
             NickChangeEvent,
             InvitedEvent,
@@ -239,6 +239,9 @@ class IRCClient:
         while self._on_register:
             m = self._on_register.popleft()
             self._outbound_queue.put_nowait(m)
+        self.bus.broadcast(ConnectedEvent(
+            client=self,
+        ))
 
     def _dispatch_ctcp_handler(self, msg: IRCMessage) -> None:
         srv_handler = getattr(

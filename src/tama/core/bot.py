@@ -44,7 +44,7 @@ class TamaBot:
     # Registered actions
     act_commands: dict[str, Command]
     act_regex: list[Regex]
-    act_event_subscribers: dict[type[Event], list[EventSubscriber]]
+    act_event_subscribers: dict[type[Event], list[OnEvent]]
 
     act_commands_idx: Trie
 
@@ -102,6 +102,7 @@ class TamaBot:
         # Populate list of event observers
         self.event_handlers = [
             (WelcomeBurstEvent, self.on_welcome_burst),
+            (ConnectedEvent, self.on_connect),
             (BotModeChangeEvent, self.on_bot_mode_change),
             (ChannelModeChangeEvent, self.on_channel_mode_change),
             (NickChangeEvent, self.on_nick_change),
@@ -200,7 +201,7 @@ class TamaBot:
                     self.act_commands_idx.add(act.name)
                 elif isinstance(act, Regex):
                     self.act_regex.append(act)
-                elif isinstance(act, EventSubscriber):
+                elif isinstance(act, OnEvent):
                     for evt in act.events:
                         if evt not in self.act_event_subscribers:
                             self.act_event_subscribers[evt] = [act]
@@ -334,6 +335,29 @@ class TamaBot:
         if log:
             log.info("%s", evt.message)
 
+    async def on_connect(self, evt: ConnectedEvent) -> None:
+        # Run OnConnect actions after connecting
+        for plug in self.plugins:
+            for act in plug.actions:
+                if isinstance(act, OnConnect):
+                    plug_name = plug.module_name.split(".")[-1]
+                    plug_config = self.config.tama.plugins.get(plug_name, {})
+                    kwargs = dict(
+                        bot=self,
+                        config=plug_config,
+                        client=evt.client,
+                        database=self.db
+                    )
+                    try:
+                        if act.is_async:
+                            await act.executor(**kwargs)
+                        else:
+                            act.executor(**kwargs)
+                    except Exception:  # noqa
+                        logging.getLogger(__name__).exception(
+                            f"Error while initializing plugin {plug_name}:"
+                        )
+
     async def on_bot_mode_change(self, evt: BotModeChangeEvent) -> None:
         log = self._get_irc_logger(evt.client, evt.client.name)
         if log:
@@ -347,12 +371,12 @@ class TamaBot:
         if log:
             if len(evt.args):
                 log.info(
-                    "-!- Mode %s %s %s by %s",
+                    "-!- Mode %s [%s %s] by %s",
                     evt.target, evt.mode, " ".join(evt.args), evt.who.nick
                 )
             else:
                 log.info(
-                    "-!- Mode %s %s by %s",
+                    "-!- Mode %s [%s] by %s",
                     evt.target, evt.mode, evt.who.nick
                 )
 
@@ -434,6 +458,7 @@ class TamaBot:
         )
 
         exec_kwargs = dict(
+            origin=evt.message,
             channel=evt.where,
             sender=evt.who,
             bot=self,

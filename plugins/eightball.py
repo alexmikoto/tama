@@ -1,3 +1,11 @@
+"""
+eightball.py
+
+This plugin has been ported directly from CloudBot, which is under the GPLv3
+license.
+
+All credit goes to the Cloudbot maintainers.
+"""
 from __future__ import annotations
 
 import random

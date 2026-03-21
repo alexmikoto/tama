@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "IRCEvent",
-    "WelcomeBurstEvent",
+    "WelcomeBurstEvent", "ConnectedEvent",
     "BotModeChangeEvent", "ChannelModeChangeEvent",
     "NickChangeEvent",
     "InvitedEvent",
@@ -35,6 +35,13 @@ class WelcomeBurstEvent(IRCEvent):
     IRC server welcome messages.
     """
     message: str
+
+
+@dataclass(frozen=True)
+class ConnectedEvent(IRCEvent):
+    """
+    IRC server connection is complete.
+    """
 
 
 @dataclass(frozen=True)

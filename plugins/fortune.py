@@ -19,7 +19,6 @@ typedef struct {                                /* information table */
 import codecs
 import struct
 import random
-import asyncio as aio
 from pathlib import Path
 from typing import List
 from dataclasses import dataclass
@@ -96,7 +95,7 @@ async def fortune(client: api.Client = None) -> None:
     for line in cookie.split("\n"):
         if line:
             client.message(line)
-            await aio.sleep(0.5)
+            await api.sleep(0.5)
 
 
 @api.command(auto_help=False)
@@ -106,4 +105,4 @@ async def book(client: api.Client = None) -> None:
     )
     for line in cookie.split("\n"):
         client.message(line)
-        await aio.sleep(0.5)
+        await api.sleep(0.5)

@@ -35,6 +35,10 @@ table = Table(
 
 
 @api.on_connect()
+async def on_load(db: api.DB.Conn):
+    await load_cache(db)
+
+
 async def load_cache(db: api.DB.Conn) -> None:
     new_cache = factoid_cache.copy()
     new_cache.clear()
@@ -79,7 +83,8 @@ async def del_factoid(db: api.DB.Conn, chan: str, word: list[str] = None) -> Non
     await load_cache(db)
 
 
-@api.command("r", "remember", permissions=["op", "chanop"])
+# TODO: Add a channel op permission (dynamic?)
+@api.command("r", "remember", permissions=["bot_control"])
 async def remember(text: str, sender: api.User, db: api.DB.Conn, channel: str, notice: api.Func) -> None:
     """<word> [+]<data> - remembers <data> with <word> - add + to <data> to append. If the input starts with <act> the
     message will be sent as an action. If <user> is in the message it will be replaced by input arguments when command
